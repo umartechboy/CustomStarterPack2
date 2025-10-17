@@ -855,30 +855,105 @@ def write_layout_json(path, meta, records):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     print(f"[OK] Layout JSON: {path}")
+    
+_GEOM_TYPES = {"MESH", "CURVE", "FONT", "SURFACE"}  # what we want in STL
 
-def enable_exporters():
-    try:
-        import addon_utils
-        for modname in ("io_mesh_stl", "io_scene_stl", "io_scene_obj"):
-            try:
-                addon_utils.enable(modname, default_set=False, persistent=False)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-#STL Exporter, new
-
-_GEOM_TYPES = {"MESH", "CURVE", "FONT", "SURFACE"}  # extend if you like
-
-def _iter_world_tris_any(obj):
-    """Yield world-space triangles (v0,v1,v2) for any supported object.
-       Uses the evaluated depsgraph, generating a temp Mesh when needed."""
+def _make_temp_mesh_from_obj(obj):
+    """Create a temp MESH object from any object (FONT/CURVE/SURFACE/MESH) using evaluated geometry."""
     deps = bpy.context.evaluated_depsgraph_get()
     eo = obj.evaluated_get(deps)
 
-    # Get an evaluated Mesh whatever the base type is
-    me = eo.to_mesh()  # works for MESH, CURVE, FONT, SURFACE in evaluated context
+    # get evaluated mesh (works for mesh/curve/font/surface with geometry settings)
+    me_eval = eo.to_mesh()
+    if not me_eval:
+        return None
+
+    # copy into a real datablock we can link
+    me_real = bpy.data.meshes.new(obj.name + "_TmpMesh")
+    me_real.from_mesh(me_eval)
+    eo.to_mesh_clear()
+
+    tmp = bpy.data.objects.new(obj.name + "_Tmp", me_real)
+    # keep world transform so geometry lands where you see it
+    tmp.matrix_world = eo.matrix_world.copy()
+    bpy.context.scene.collection.objects.link(tmp)
+    return tmp
+
+def _collect_export_objects_with_temps():
+    """Collect all meshes + temp meshes for curves/fonts/surfaces; returns (export_objs, temps_to_delete)."""
+    export_objs = []
+    temps = []
+    for o in bpy.data.objects:
+        if o.type == "MESH":
+            export_objs.append(o)
+        elif o.type in {"CURVE", "FONT", "SURFACE"}:
+            t = _make_temp_mesh_from_obj(o)
+            if t:
+                export_objs.append(t)
+                temps.append(t)
+    return export_objs, temps
+
+def _cleanup_temps(temps):
+    for t in temps:
+        try:
+            me = t.data
+            bpy.data.objects.remove(t, do_unlink=True)
+            if me.users == 0:
+                bpy.data.meshes.remove(me, do_unlink=True)
+        except Exception:
+            pass
+
+def _enable_stl_addon() -> bool:
+    try:
+        import addon_utils
+        for modname in ("io_mesh_stl", "io_scene_stl"):
+            for m in addon_utils.modules():
+                if m.__name__ == modname:
+                    addon_utils.enable(modname, default_set=False, persistent=False)
+                    return True
+            try:
+                bpy.ops.preferences.addon_enable(module=modname)
+                return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+def _try_addon_export_stl(path_stl: str) -> bool:
+    """Try official add-on export, including Text/Curves via temp meshes. Returns True on success."""
+    if not _enable_stl_addon():
+        return False
+
+    export_objs, temps = _collect_export_objects_with_temps()
+    if not export_objs:
+        _cleanup_temps(temps)
+        raise RuntimeError("No geometry to export.")
+
+    # select only our export set
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in export_objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = export_objs[0]
+
+    try:
+        # operator name is standard when add-on is present
+        if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
+            bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
+            print(f"[OK] Combined STL (add-on): {path_stl}")
+            return True
+        return False
+    except Exception as e:
+        print(f"[WARN] STL add-on export failed: {e}")
+        return False
+    finally:
+        _cleanup_temps(temps)
+
+def _iter_world_tris_any(obj):
+    """Yield world-space triangles (v0,v1,v2) for any supported object via evaluated mesh."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    eo = obj.evaluated_get(deps)
+    me = eo.to_mesh()
     try:
         if not me:
             return
@@ -893,13 +968,13 @@ def _iter_world_tris_any(obj):
     finally:
         eo.to_mesh_clear()
 
-def export_scene_as_stl(path_stl: str):
-    """Write ALL visible geometry (Mesh/Text/Curves/Surface) into one binary STL."""
+def _write_binary_stl_all(path_stl: str):
+    """Addon-free writer that includes Mesh/Text/Curves/Surface."""
     objs = [o for o in bpy.data.objects if o.type in _GEOM_TYPES]
     if not objs:
         raise RuntimeError("No geometry objects to export (MESH/CURVE/FONT/SURFACE).")
 
-    # First pass: count triangles
+    # Count triangles
     tri_count = 0
     for o in objs:
         for _ in _iter_world_tris_any(o):
@@ -922,132 +997,14 @@ def export_scene_as_stl(path_stl: str):
                     float(v2.x), float(v2.y), float(v2.z),
                     0
                 ))
-    print(f"[OK] Combined STL (incl. Text/Curves): {path_stl}")
-# --- END ---
+    print(f"[OK] Combined STL (addon-free): {path_stl}")
 
-def _enable_addon(modname: str) -> bool:
-    try:
-        import addon_utils
-        for m in addon_utils.modules():
-            if m.__name__ == modname:
-                addon_utils.enable(modname, default_set=False, persistent=False)
-                return True
-        # try operator path (older builds)
-        try:
-            bpy.ops.preferences.addon_enable(module=modname)
-            return True
-        except Exception:
-            return False
-    except Exception:
-        return False
-
-def _try_addon_stl_export(path_stl: str) -> bool:
-    ok = _enable_addon("io_mesh_stl") or _enable_addon("io_scene_stl")
-    if not ok:
-        return False
-    # select all meshes
-    bpy.ops.object.select_all(action='DESELECT')
-    for o in bpy.data.objects:
-        if o.type == 'MESH':
-            o.select_set(True)
-    bpy.context.view_layer.objects.active = next((o for o in bpy.context.selected_objects if o.type=='MESH'), None)
-    # operator name varies by build; try both
-    try:
-        if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
-            bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
-            print(f"[OK] Combined STL (addon): {path_stl}")
-            return True
-    except Exception as e:
-        print(f"[WARN] STL addon export failed: {e}")
-    return False
-
-def _iter_world_triangles(obj):
-    """Yield triangles (v0, v1, v2) in world space for a single object (evaluated)."""
-    deps = bpy.context.evaluated_depsgraph_get()
-    eo = obj.evaluated_get(deps)
-    me = eo.to_mesh()
-    try:
-        me.calc_loop_triangles()
-        verts = me.vertices
-        M = eo.matrix_world
-        for tri in me.loop_triangles:
-            v0 = M @ verts[tri.vertices[0]].co
-            v1 = M @ verts[tri.vertices[1]].co
-            v2 = M @ verts[tri.vertices[2]].co
-            yield (v0, v1, v2)
-    finally:
-        eo.to_mesh_clear()
-
-def _write_binary_stl(mesh_objects, path_stl: str):
-    """Write selected mesh objects to a single binary STL (no add-ons)."""
-    # First pass: count triangles
-    tri_count = 0
-    for o in mesh_objects:
-        for _ in _iter_world_triangles(o):
-            tri_count += 1
-
-    with open(path_stl, "wb") as f:
-        header = b"Generated by Blender script (no addon)".ljust(80, b"\0")
-        f.write(header)
-        f.write(struct.pack("<I", tri_count))
-
-        for o in mesh_objects:
-            for v0, v1, v2 in _iter_world_triangles(o):
-                # Compute facet normal
-                n = (v1 - v0).cross(v2 - v0)
-                ln = n.length
-                if ln > 1e-20:
-                    n /= ln
-                else:
-                    n = Vector((0.0, 0.0, 0.0))
-
-                # Pack: normal, v0, v1, v2 (all float32), then attribute uint16
-                f.write(struct.pack(
-                    "<12fH",
-                    float(n.x), float(n.y), float(n.z),
-                    float(v0.x), float(v0.y), float(v0.z),
-                    float(v1.x), float(v1.y), float(v1.z),
-                    float(v2.x), float(v2.y), float(v2.z),
-                    0  # attribute byte count
-                ))
-    print(f"[OK] Combined STL (built-in writer): {path_stl}")
-
-def export_scene_as_stl_old(path_stl: str):
-    """Export ALL mesh objects to a single STL. Tries addon; falls back to built-in writer."""
-    # 1) Try STL add-on
-    if _try_addon_stl_export(path_stl):
+def export_scene_as_stl(path_stl: str):
+    """First try official add-on (including text/curves via temp meshes), else fallback to built-in writer."""
+    if _try_addon_export_stl(path_stl):
         return
-    # 2) Fallback: write STL directly (no add-ons)
-    mesh_objects = [o for o in bpy.data.objects if o.type == 'MESH']
-    if not mesh_objects:
-        raise RuntimeError("No mesh objects found to export.")
-    _write_binary_stl(mesh_objects, path_stl)
-
-# STL exporter from previous code.
-def export_scene_as_stl_older(path_stl):
-    enable_exporters()
-    # select all mesh objects
-    bpy.ops.object.select_all(action='DESELECT')
-    for o in bpy.data.objects:
-        if o.type == 'MESH':
-            o.select_set(True)
-    bpy.context.view_layer.objects.active = next((o for o in bpy.context.selected_objects if o.type=='MESH'), None)
-
-    # Try standard STL exporter (varies by build)
-    if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
-        bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
-        print(f"[OK] Combined STL: {path_stl}")
-        return
-
-    # Fallback: OBJ (still one file with all selected)
-    alt = os.path.splitext(path_stl)[0] + ".obj"
-    if hasattr(bpy.ops.wm, "obj_export"):
-        bpy.ops.wm.obj_export(filepath=alt, export_selected_objects=True)
-        print(f"[OK] Combined OBJ (fallback): {alt}")
-    else:
-        bpy.ops.export_scene.obj(filepath=alt, use_selection=True)
-        print(f"[OK] Combined OBJ (fallback legacy): {alt}")
-
+    _write_binary_stl_all(path_stl)
+# --- end exporter ---
 def main():
     args = parse_args()
     ensure_outdir(args.outdir)
@@ -1253,7 +1210,7 @@ def main():
 
 
     blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
-    stl_path = os.path.join(args.outdir, args.model_name_seed + f"model.stl")
+    stl_path = os.path.join(args.outdir, args.model_name_seed + f"_model.stl")
 
     bpy.ops.wm.save_as_mainfile(filepath=blend_path)
     print(f"[OK] Blend: {blend_path}")
