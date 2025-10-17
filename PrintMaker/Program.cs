@@ -28,6 +28,8 @@ class Program
             //string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
             string jobID = "001";             // REQUIRED (override with --job)
             string workingDir = "";           // --workdir
+            string title = "Starter Pack";
+            string subtitle = "Everything You Need";
             int dpi = 600;                    // --dpi
             float minStickerSizes_smm = 10f;    // --min_sticker_mm
             float cuttingMargin_mm = 0.5f;         // --cut_margin_mm
@@ -78,6 +80,8 @@ class Program
 
             // ---- optional ----
             if (kv.TryGetValue("--workdir", out var wd)) workingDir = wd.Trim('"');
+            if (kv.TryGetValue("--title", out var wdt)) title = wdt.Trim('"');
+            if (kv.TryGetValue("--subtitle", out var wdst)) subtitle = wdst.Trim('"');
 
             if (kv.TryGetValue("--dpi", out var sDpi))
             {
@@ -117,7 +121,7 @@ class Program
             Console.WriteLine($"[CFG] in = {inDir}");
             Console.WriteLine($"[CFG] out= {outDir}");
 
-            await CreateAll(
+            var t1 = CreateAll(
                 nameSeed: "keychain",
                 inDir: inDir, 
                 outDir: outDir, 
@@ -135,10 +139,12 @@ class Program
                 marginFig: 2,
                 marginAcc: 1, 
                 paddingCard: 1.5F,
-                cardFillet: 1
+                cardFillet: 1,
+                title: title,
+                subtitle: subtitle
                 );
 
-            await CreateAll(
+            var t2 = CreateAll(
                 nameSeed: "card",
                 inDir: inDir,
                 outDir: outDir,
@@ -156,8 +162,12 @@ class Program
                 marginFig: 4,
                 marginAcc: 2,
                 paddingCard: 4,
-             cardFillet: 3);
+                cardFillet: 3,
+                title: title,
+                subtitle: subtitle);
 
+            t1.Wait();
+            t2.Wait();
             return 0;
         }
         catch (Exception ex)
@@ -166,7 +176,7 @@ class Program
             return 1;
         }
     }
-    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet)
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle)
     {
 
         var result = await BlenderLayoutRunner.RunAsync(
@@ -181,8 +191,6 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        Title: "Starter Pack",
-        Subtitle: "Everything You Need",
         DontRunBlender: false,
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
@@ -192,7 +200,9 @@ class Program
         MarginFigure: marginFig,
         MarginAccessories: marginAcc,
         PaddingCard: paddingCard,
-        Fillet: cardFillet
+        Fillet: cardFillet,
+        Title: title, 
+        Subtitle: subtitle
     )
 );
         Console.WriteLine("Composing priting image");
