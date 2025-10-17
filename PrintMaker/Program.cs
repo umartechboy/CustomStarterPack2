@@ -23,7 +23,7 @@ class Program
         try
         {
             // ---- defaults ----
-            string jobID = "001";             // REQUIRED (override with --job)
+            string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
             string workingDir = "";           // --workdir
             int dpi = 300;                    // --dpi
             float minStickerSizesmm = 10f;    // --min_sticker_mm
@@ -117,7 +117,7 @@ class Program
 
             var result = await BlenderLayoutRunner.RunAsync(
         new BlenderLayoutRunner.BlenderLayoutOptions(
-            BlenderExe: @"C:\Program Files\Blender Foundation\Blender 4.5\blender.exe",
+            BlenderExe: @"blender",
             ScriptPath: @"blender2.py",
             Figure: Path.Combine(inDir, "base_character_3d.glb"),
             Acc: new[] { Path.Combine(inDir, "accessory_1_3d.glb"), Path.Combine(inDir, "accessory_2_3d.glb"), Path.Combine(inDir, "accessory_3_3d.glb") },
@@ -128,7 +128,8 @@ class Program
             MidDir: inDir,
             JobId: jobID,
             Title: "Starter Pack",
-            Subtitle: "By M3D"
+            Subtitle: "By M3D",
+            DontRunBlender: false
         )
     );
             Console.WriteLine("Composing priting image");
@@ -247,7 +248,7 @@ Examples:
   PrintMaker --job 001
   PrintMaker --job 042 --workdir ""C:\Projects\StarterPack"" --dpi 300 --min_sticker_mm 12.5 --cut_margin_mm 2
   PrintMaker --job=007 --dpi=600
-Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model figure.glb, up to four accessories accessory_1.glb…accessory_4.glb, their crop-fitted counterparts figure.png and accessory_1.png…accessory_4.png, plus any extra art; under jobs/<id>/out we read if present layout_<id>.json (from Blender) and we write Blender artifacts (model.blend, optional *_text*.png), and the final outputs print<id>.png and print<id>.dxf; the app therefore requires read access to jobs/<id>/in and write access to both jobs/<id>/in and jobs/<id>/out (e.g., to save intermediate or normalized files).
+Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model figure.glb, up to four accessories accessory_1_3d.glb…accessory_3_3d.glb, their rembg counterparts figure.png and accessory_1_2d.png…accessory_3_2D.png, plus any extra art; under jobs/<id>/out we read if present layout_<id>.json (from Blender) and we write Blender artifacts (model.blend, optional *_text*.png), and the final outputs print<id>.png and print<id>.dxf; the app therefore requires read access to jobs/<id>/in and write access to both jobs/<id>/in and jobs/<id>/out (e.g., to save intermediate or normalized files).
 ");
         return 2; // non-zero for usage/error
     }
@@ -320,7 +321,7 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
             // rotation (Blender CCW vs image CW)
             float angle = (float)(-it.RotationZDeg);
 
-            using var src = await Image.LoadAsync<Rgba32>(srcPath);
+            using var src = CropByTransparency(await Image.LoadAsync<Rgba32>(srcPath), 10);
 
             src.Mutate(m => m.Resize(new ResizeOptions
             {
@@ -356,6 +357,48 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
         };
         var toReturn = canvas.Clone();
         return toReturn;
+    }
+    public static Image<Rgba32> CropByTransparency(Image<Rgba32> src, byte alphaThreshold)
+    {
+        int w = src.Width, h = src.Height;
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+
+        src.ProcessPixelRows(accessor =>
+        {
+            for (int y = 0; y < h; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (int x = 0; x < w; x++)
+                {
+                    if (row[x].A >= alphaThreshold)
+                    {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+        });
+
+        Image<Rgba32> result;
+        if (maxX < minX || maxY < minY)
+        {
+            // fully transparent → return 1x1 transparent
+            result = new Image<Rgba32>(1, 1);
+        }
+        else
+        {
+            var rect = new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+            result = src.Clone(ctx => ctx.Crop(rect));
+        }
+
+        // preserve DPI / resolution metadata
+        result.Metadata.HorizontalResolution = src.Metadata.HorizontalResolution;
+        result.Metadata.VerticalResolution = src.Metadata.VerticalResolution;
+        result.Metadata.ResolutionUnits = src.Metadata.ResolutionUnits;
+
+        return result;
     }
 
     /// <summary>

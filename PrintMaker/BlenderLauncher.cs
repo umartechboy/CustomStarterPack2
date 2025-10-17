@@ -37,7 +37,8 @@ public sealed class BlenderLayoutRunner
         double TH = 20.0,              // --TH
         string Font = "",              // --font
         double TextExtr = 0.8,         // --text_extr
-        double TextLift = 0.2         // --text_lift
+        double TextLift = 0.2,         // --text_lift
+        bool DontRunBlender = false    // Don't actually run the blender, only for debugging
     );
 
     // === PUBLIC API ===
@@ -117,20 +118,22 @@ public sealed class BlenderLayoutRunner
         {
             if (e.Data is not null) Console.Error.WriteLine(e.Data);
         };
-
-        if (!proc.Start())
-            throw new InvalidOperationException("Failed to start Blender process.");
-
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
-
-        await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        if (proc.ExitCode != 0)
+        if (!opt.DontRunBlender)
         {
-            // Surface useful logs if Blender/script failed
-            var msg = $"Blender exited with code {proc.ExitCode}.\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}";
-            throw new ApplicationException(msg);
+            if (!proc.Start())
+                throw new InvalidOperationException("Failed to start Blender process.");
+
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            if (proc.ExitCode != 0)
+            {
+                // Surface useful logs if Blender/script failed
+                var msg = $"Blender exited with code {proc.ExitCode}.\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}";
+                throw new ApplicationException(msg);
+            }
         }
 
         // Determine the JSON path: script defaults to <outdir>/layout_<job_id>.json unless --layout was passed. :contentReference[oaicite:2]{index=2}
