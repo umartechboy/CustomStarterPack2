@@ -34,11 +34,16 @@ public sealed class BlenderLayoutRunner
         string Subtitle = "By M3D",    // --subtitle
         double TS = 14.0,              // --TS
         double MT = 3.0,               // --MT
-        double TH = 20.0,              // --TH
+        double TH = 30.0,              // --TH
         string Font = "",              // --font
         double TextExtr = 0.8,         // --text_extr
-        double TextLift = 0.2,         // --text_lift
-        bool DontRunBlender = false    // Don't actually run the blender, only for debugging
+        double TextLift = -0.2,         // --text_lift
+        bool DontRunBlender = false,    // Don't actually run the blender, only for debugging// add to BlenderLayoutOptions(...)
+        bool HasHole = false,             // --has_hole
+        double HoleD = 3.0,               // --hole_d (mm)
+        double HoleMargin = 4.0,          // --hole_margin (mm)
+        string HoleCorner = "top_right",  // --hole_corner: top_right|top_left|bottom_right|bottom_left
+        string ModelNameSeed = "card"         // --model_name_seed
     );
 
     // === PUBLIC API ===
@@ -79,6 +84,7 @@ public sealed class BlenderLayoutRunner
             "--font", Quote(opt.Font),
             "--text_extr", opt.TextExtr.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--text_lift", opt.TextLift.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--model_name_seed", opt.ModelNameSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         if (opt.Acc is not null)
@@ -93,6 +99,21 @@ public sealed class BlenderLayoutRunner
         if (opt.FlipHead) args.Add("--flip_head");
         if (opt.AccFrontUp) args.Add("--acc_front_up");
         if (opt.SaveBlend) args.Add("--save_blend");
+
+        if (opt.HasHole) args.Add("--has_hole");
+        args.AddRange(new[]
+        {
+            "--hole_d",        opt.HoleD.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--hole_margin",   opt.HoleMargin.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--hole_corner",   Quote(string.IsNullOrWhiteSpace(opt.HoleCorner) ? "top_right" : opt.HoleCorner)
+            });
+
+        // model name seed (optional)
+        if (!string.IsNullOrWhiteSpace(opt.ModelNameSeed))
+        {
+            args.Add("--model_name_seed");
+            args.Add(Quote(opt.ModelNameSeed));
+        }
 
         var psi = new ProcessStartInfo
         {
@@ -137,7 +158,7 @@ public sealed class BlenderLayoutRunner
         }
 
         // Determine the JSON path: script defaults to <outdir>/layout_<job_id>.json unless --layout was passed. :contentReference[oaicite:2]{index=2}
-        var jsonPath = Path.Combine(opt.MidDir, "layout.json");
+        var jsonPath = Path.Combine(opt.MidDir, opt.ModelNameSeed + "_layout.json");
 
         if (!File.Exists(jsonPath))
         {

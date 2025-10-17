@@ -15,6 +15,8 @@ using System.Text;
 using System.Net.Http.Headers;
 using Path = System.IO.Path;
 using SixLabors.ImageSharp.Advanced;
+using System.Reflection;
+using System.Runtime.Intrinsics.Arm;
 
 class Program
 {
@@ -23,12 +25,13 @@ class Program
         try
         {
             // ---- defaults ----
-            string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
+            //string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
+            string jobID = "001";             // REQUIRED (override with --job)
             string workingDir = "";           // --workdir
-            int dpi = 300;                    // --dpi
-            float minStickerSizesmm = 10f;    // --min_sticker_mm
-            float cuttingMargin = 1f;         // --cut_margin_mm
-            int cutSmoothing = 10;
+            int dpi = 600;                    // --dpi
+            float minStickerSizes_smm = 10f;    // --min_sticker_mm
+            float cuttingMargin_mm = 0.5f;         // --cut_margin_mm
+            int cutSmoothing_px = 5;
 
 
             //// If no args or null -> help
@@ -86,21 +89,21 @@ class Program
             {
                 if (!int.TryParse(sCutSmoothing, out var vCutSmoothing) || vCutSmoothing <= 0)
                     return PrintHelp("Invalid --cut_smoothing. Use a positive integer.");
-                cutSmoothing = vCutSmoothing;
+                cutSmoothing_px = vCutSmoothing;
             }
 
             if (kv.TryGetValue("--min_sticker_mm", out var sMin))
             {
                 if (!float.TryParse(sMin, out var vMin) || vMin <= 0)
                     return PrintHelp("Invalid --min_sticker_mm. Use a positive number.");
-                minStickerSizesmm = vMin;
+                minStickerSizes_smm = vMin;
             }
 
             if (kv.TryGetValue("--cut_margin_mm", out var sCut))
             {
                 if (!float.TryParse(sCut, out var vCut) || vCut < 0)
                     return PrintHelp("Invalid --cut_margin_mm. Use a non-negative number.");
-                cuttingMargin = vCut;
+                cuttingMargin_mm = vCut;
             }
 
             // ---- derived paths ----
@@ -110,110 +113,50 @@ class Program
             Directory.CreateDirectory(inDir);
 
             // log config
-            Console.WriteLine($"[CFG] job={jobID}  workdir=\"{workingDir}\"  dpi={dpi}  min_sticker_mm={minStickerSizesmm}  cut_margin_mm={cuttingMargin}");
+            Console.WriteLine($"[CFG] job={jobID}  workdir=\"{workingDir}\"  dpi={dpi}  min_sticker_mm={minStickerSizes_smm}  cut_margin_mm={cuttingMargin_mm}");
             Console.WriteLine($"[CFG] in = {inDir}");
             Console.WriteLine($"[CFG] out= {outDir}");
 
-
-            var result = await BlenderLayoutRunner.RunAsync(
-        new BlenderLayoutRunner.BlenderLayoutOptions(
-            BlenderExe: @"blender",
-            ScriptPath: @"blender2.py",
-            Figure: Path.Combine(inDir, "base_character_3d.glb"),
-            Acc: new[] { Path.Combine(inDir, "accessory_1_3d.glb"), Path.Combine(inDir, "accessory_2_3d.glb"), Path.Combine(inDir, "accessory_3_3d.glb") },
-            CardWidth: 130,
-            CardHeight: 190,
-            CardThickness: 5,
-            OutDir: outDir,
-            MidDir: inDir,
-            JobId: jobID,
-            Title: "Starter Pack",
-            Subtitle: "By M3D",
-            DontRunBlender: false
-        )
-    );
-            Console.WriteLine("Composing priting image");
-            // result is your LayoutPayload from Blender
-            var composedImage = await ComposeAsync(
-                layout: result,
-                imagesDir: inDir,
-                dpi: dpi
-            );
-
-            Console.Write("Computing cutting path");
-            var boundaries = BoundaryDetector.DetectBoundaries(composedImage.Clone(), alphaThreshold: 1).FindAll(info => info.BBox.Width * info.BBox.Height / (float)dpi / dpi * 25.4 * 25.4 > minStickerSizesmm);
-
-            // run greedy contour ordering on all paths
-            for (int i = 0; i < boundaries.Count; i++)
-            {
-                BoundaryDetector.OrderContourGreedy(boundaries[i]);
-                //BoundaryDetector.SmoothBoundary(infos[i], iterations: 3, window: 3, assumeClosed: true);
-                BoundaryDetector.TrimAfterClosureByDistance(boundaries[i], 60);
-                BoundaryDetector.SmoothBoundary(boundaries[i], iterations: cutSmoothing, window: 20, assumeClosed: true);
-                BoundaryDetector.TrimAfterClosureByDistance(boundaries[i], 10);
-                //BoundaryDetector.PaintBoundaryAA(composedImage, infos[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
-                Console.Write(".");
-            }
-
-            // Append the image-sized rounded rectangle (e.g., 3 mm radius)
-            float mm = 3.0f;
-            float radiusPx = (float)(mm * dpi / 25.4);
-            var frame = BoundaryDetector.MakeRoundedRectBoundary(
-                id: boundaries.Count + 1,
-                width: composedImage.Width,
-                height: composedImage.Height,
-                radiusPx: radiusPx,
-                cornerSegments: 20
-            );
-            boundaries.Add(frame);
-            Console.WriteLine(boundaries.Count + " cuts prepared");
-
-            Image<Rgba32> finalImage = composedImage;
-            if (cuttingMargin > 0)
-            {
-                Console.WriteLine("Generating content for cutting margin");
-                // Lets create bleed by picking up some inwards pixels.
-                int rErrodPx = Math.Max(1, (int)Math.Round(cuttingMargin / 2 * dpi / 25.4));
-                int rPx = Math.Max(1, (int)Math.Round(cuttingMargin * dpi / 25.4));
-                var errodedComposedImage = ErodeByAlpha(composedImage, rErrodPx, 128);
-                using var bleed = MakeContentAwareBleed(
-                    src: errodedComposedImage,
-                    rPx: rPx,
-                    alphaThreshold: 1,
-                    featherPx: 0       // soften last few pixels; set 0 for hard edge
+            await CreateAll(
+                nameSeed: "keychain",
+                inDir: inDir, 
+                outDir: outDir, 
+                jobID: jobID, 
+                dpi: dpi, 
+                cutSmoothing: cutSmoothing_px, 
+                cuttingMargin_mm: cuttingMargin_mm * 0.3F, 
+                minStickerSizes_smm: minStickerSizes_smm * 0.3F, 
+                width: 130 * 0.3F, 
+                height: 190 * 0.3F,
+                thickness: 2, 
+                hasHole: true, 
+                textHeight: 7,
+                upperRatio: 0.15F,
+                marginFig: 2,
+                marginAcc: 1, 
+                paddingCard: 1.5F,
+                cardFillet: 1
                 );
 
-                // Lets featherout the edges because we can now see the bleed beneath it,
-                var featheredComposedImage = FeatherInwardByAlpha(composedImage, dpi / 300);
-
-                // Put bleed underneath the composed artwork
-                finalImage = new Image<Rgba32>(composedImage.Width, composedImage.Height);
-                finalImage.Mutate(ctx => ctx
-                    .DrawImage(bleed, new Point(0, 0), 1f)
-                    .DrawImage(featheredComposedImage, new Point(0, 0), 1f)
-                );
-            }
-            Console.WriteLine("Saving data");
-            //debugPath(finalImage, infos[0].BoundaryPixels, "F:\\CustomStarterPack\\ImgDebugger\\bin\\Debug\\net8.0-windows");
-            var refImage = finalImage.Clone();
-            SavePngWithDpi(finalImage, Path.Combine(outDir, "printing.png"), dpi);
-            Console.WriteLine("Saved printing file at: " + Path.Combine(outDir, "printing.png"));
-
-            for (int i = 0; i < boundaries.Count; i++)
-                BoundaryDetector.PaintBoundaryAA(refImage, boundaries[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
-
-            SavePngWithDpi(refImage, Path.Combine(outDir, "reference.png"), dpi);
-            Console.WriteLine("Saved reference image at: " + Path.Combine(outDir, "reference.png"));
-
-            // Save vectors as DXF (units = inches; pixel→inch via DPI)
-            DxfExporterNetDxf.Save(Path.Combine(outDir, "cutting.dxf"), boundaries, composedImage.Height, dpi);
-
-            Console.WriteLine("Saved cutting DXF at: " + Path.Combine(outDir, "cutting.dxf"));
-
-
-            Console.WriteLine("All Done. Exiting...");
-            // OR to distinguish holes:
-            // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);
+            await CreateAll(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                jobID: jobID,
+                dpi: dpi,
+                cutSmoothing: cutSmoothing_px,
+                cuttingMargin_mm: cuttingMargin_mm,
+                minStickerSizes_smm: minStickerSizes_smm,
+                width: 130,
+                height: 190,
+                thickness: 5,
+                hasHole: false,
+                textHeight: 30,
+                upperRatio: 0.2F,
+                marginFig: 4,
+                marginAcc: 2,
+                paddingCard: 4,
+             cardFillet: 3);
 
             return 0;
         }
@@ -222,6 +165,119 @@ class Program
             Console.WriteLine("[ERROR] " + ex.Message);
             return 1;
         }
+    }
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet)
+    {
+
+        var result = await BlenderLayoutRunner.RunAsync(
+    new BlenderLayoutRunner.BlenderLayoutOptions(
+        BlenderExe: @"blender",
+        ScriptPath: @"blender2.py",
+        Figure: Path.Combine(inDir, "base_character_3d.glb"),
+        Acc: new[] { Path.Combine(inDir, "accessory_1_3d.glb"), Path.Combine(inDir, "accessory_2_3d.glb"), Path.Combine(inDir, "accessory_3_3d.glb") },
+        CardWidth: width,
+        CardHeight: height,
+        CardThickness: thickness,
+        OutDir: outDir,
+        MidDir: inDir,
+        JobId: jobID,
+        Title: "Starter Pack",
+        Subtitle: "Everything You Need",
+        DontRunBlender: false,
+        ModelNameSeed: nameSeed,
+        HasHole: hasHole,
+        HoleMargin: 5,
+        TH: textHeight,
+        UpperRatio:upperRatio,
+        MarginFigure: marginFig,
+        MarginAccessories: marginAcc,
+        PaddingCard: paddingCard,
+        Fillet: cardFillet
+    )
+);
+        Console.WriteLine("Composing priting image");
+        // result is your LayoutPayload from Blender
+        var composedImage = await ComposeAsync(
+            layout: result,
+            imagesDir: inDir,
+            dpi: dpi
+        );
+
+        Console.Write("Computing cutting path");
+        var boundaries = BoundaryDetector.DetectBoundaries(composedImage.Clone(), alphaThreshold: 1).FindAll(info => info.BBox.Width * info.BBox.Height / (float)dpi / dpi * 25.4 * 25.4 > minStickerSizes_smm);
+
+        // run greedy contour ordering on all paths
+        for (int i = 0; i < boundaries.Count; i++)
+        {
+            BoundaryDetector.OrderContourGreedy(boundaries[i]);
+            //BoundaryDetector.SmoothBoundary(infos[i], iterations: 3, window: 3, assumeClosed: true);
+            BoundaryDetector.TrimAfterClosureByDistance(boundaries[i], 5);
+            BoundaryDetector.SmoothBoundary(boundaries[i], iterations: cutSmoothing, window: 20, assumeClosed: true);
+            BoundaryDetector.TrimAfterClosureByDistance(boundaries[i], 60);
+            //BoundaryDetector.PaintBoundaryAA(composedImage, infos[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
+            Console.Write(".");
+        }
+        var dInd = boundaries.FindIndex(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels));
+        //debugPath(composedImage, boundaries.Find(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels)).BoundaryPixels, "F:\\CustomStarterPack\\CustomStarterPack\\ImgDebugger\\bin\\Debug\\net8.0-windows");
+        // Append the image-sized rounded rectangle (e.g., 3 mm radius)
+        float mm = cardFillet;
+        float radiusPx = (float)(mm * dpi / 25.4);
+        var frame = BoundaryDetector.MakeRoundedRectBoundary(
+            id: boundaries.Count + 1,
+            width: composedImage.Width,
+            height: composedImage.Height,
+            radiusPx: radiusPx,
+            cornerSegments: 20
+        );
+        boundaries.Add(frame);
+        Console.WriteLine(boundaries.Count + " cuts prepared");
+
+        Image<Rgba32> finalImage = composedImage;
+        if (cuttingMargin_mm > 0)
+        {
+            Console.WriteLine("Generating content for cutting margin");
+            // Lets create bleed by picking up some inwards pixels.
+            int rErrodPx = Math.Max(1, (int)Math.Round(cuttingMargin_mm / 2 * dpi / 25.4));
+            int rPx = Math.Max(1, (int)Math.Round(cuttingMargin_mm * dpi / 25.4));
+            var errodedComposedImage = ErodeByAlpha(composedImage, rErrodPx, 128);
+            using var bleed = MakeContentAwareBleed(
+                src: errodedComposedImage,
+                rPx: rPx,
+                alphaThreshold: 1,
+                featherPx: 0       // soften last few pixels; set 0 for hard edge
+            );
+
+            // Lets featherout the edges because we can now see the bleed beneath it,
+            var featheredComposedImage = FeatherInwardByAlpha(composedImage, dpi / 300);
+
+            // Put bleed underneath the composed artwork
+            finalImage = new Image<Rgba32>(composedImage.Width, composedImage.Height);
+            finalImage.Mutate(ctx => ctx
+                .DrawImage(bleed, new Point(0, 0), 1f)
+                .DrawImage(featheredComposedImage, new Point(0, 0), 1f)
+            );
+        }
+        Console.WriteLine("Saving data");
+        
+        var refImage = finalImage.Clone();
+        SavePngWithDpi(finalImage, Path.Combine(outDir, nameSeed + "_printing.png"), dpi);
+        Console.WriteLine("Saved printing file at: " + Path.Combine(outDir, nameSeed + "_printing.png"));
+
+        for (int i = 0; i < boundaries.Count; i++)
+            BoundaryDetector.PaintBoundaryAA(refImage, boundaries[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
+
+        SavePngWithDpi(refImage, Path.Combine(outDir, nameSeed + "_reference.png"), dpi);
+        Console.WriteLine("Saved reference image at: " + Path.Combine(outDir, nameSeed + "_reference.png"));
+
+        // Save vectors as DXF (units = inches; pixel→inch via DPI)
+        DxfExporterNetDxf.Save(Path.Combine(outDir, nameSeed + "_cutting.dxf"), boundaries, composedImage.Height, dpi);
+
+        Console.WriteLine("Saved cutting DXF at: " + Path.Combine(outDir, nameSeed + "_cutting.dxf"));
+
+
+        Console.WriteLine("All Done. Exiting...");
+        // OR to distinguish holes:
+        // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);
     }
 
     // ---- help printer ----

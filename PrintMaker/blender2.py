@@ -41,7 +41,14 @@ def parse_args():
     p.add_argument("--TH",         type=float, default=20.0,  help="Target total height (Y-extent) of the two-line group")
     p.add_argument("--font",       type=str,   default="",     help="Optional TTF/OTF path for both texts")
     p.add_argument("--text_extr",  type=float, default=0.8,   help="Text extrusion (depth in Z)")
-    p.add_argument("--text_lift",  type=float, default=0.2,   help="Lift above card top to avoid z-fighting")
+    p.add_argument("--text_lift",  type=float, default=-0.2,   help="Lift above card top to avoid z-fighting")
+    #Keyhole
+    p.add_argument("--has_hole", action="store_true", help="If set, cut a key hole through the card")
+    p.add_argument("--hole_d", type=float, default=6.0, help="Key hole diameter (mm)")
+    p.add_argument("--hole_margin", type=float, default=4.0, help="Inset from card edges (mm)")
+    p.add_argument("--hole_corner", type=str, default="top_right", choices=["top_right","top_left","bottom_right","bottom_left"])
+    p.add_argument("--model_name_seed", type=str, default="card", choices=["card", "keychain"])
+
 
     args = p.parse_args(argv)
     # Limit accessories to 3 as requested
@@ -273,7 +280,7 @@ def render_text_group_front_png(text_group, out_png_path, px=1600, margin=0.08, 
     right = Vector((1, 0, 0))
     up    = Vector((0, 1, 0))
     fwd   = Vector((0, 0, -1))       # desired viewing direction
-    dist  = 2.0                      # any positive; ortho ignores perspective
+    dist  = 20.0                      # any positive; ortho ignores perspective
     cam.matrix_world = Matrix((
         ( right.x, up.x,  0.0, center.x              ),
         ( right.y, up.y,  0.0, center.y              ),
@@ -462,6 +469,47 @@ def scale_group_y_to_height(group_root, children, target_height, slot_bottom_y, 
     group_root.location.y += (slot_cy - cy)
     bpy.context.view_layer.update()
 
+def sink_into_card(obj, card_obj, max_fraction=1.0/3.0):
+    """
+    Push the object down into the card, but not more than 'max_fraction' of the object's height.
+    Assumes the object is already snapped so its bottom touches the card top (Z=0 for the card).
+    """
+    # card top/bottom
+    card_top = world_aabb(card_obj)[1].z      # should be 0 after our setup
+    card_bottom = world_aabb(card_obj)[0].z   # -thickness
+
+    # object size
+    d = world_dims(obj)
+    obj_h = float(d.z)
+    if obj_h <= 0.0:
+        return
+
+    # max allowed sink
+    max_sink = obj_h * float(max_fraction)
+    # cannot sink past card bottom plane (that would fully embed); cap by card thickness
+    card_th = card_top - card_bottom
+    sink = min(max_sink, card_th)
+
+    # ensure current bottom is at card top (touching) before sinking
+    cur_bottom = bottom_z(obj)
+    dz_to_touch = card_top - cur_bottom
+    obj.location.z += dz_to_touch
+
+    # now sink by 'sink'
+    obj.location.z -= sink
+    bpy.context.view_layer.update()
+    
+def snap_bottom_to_base_top(obj, base_obj, z_offset: float = 0.0):
+    """
+    Move 'obj' along Z so its *bottom* (minZ) sits exactly on the *top* (maxZ)
+    of 'base_obj', plus an optional z_offset (gap). Positive z_offset lifts it.
+    """
+    target = top_z(base_obj) + float(z_offset)
+    dz = target - bottom_z(obj)
+    obj.location.z += dz
+    bpy.context.view_layer.update()
+
+# THis is not used anymore. Will make the object stay right on top of the card
 def lift_group_to_card_top(group_root, children, card_obj, lift=0.2):
     """Place the group to sit on card top with an extra tiny lift."""
     # put Z so bottom touches card top, then add lift
@@ -564,16 +612,6 @@ def top_z(obj):
 def bottom_z(obj):
     mn, _ = world_aabb(obj)
     return float(mn.z)
-
-def snap_bottom_to_base_top(obj, base_obj, z_offset: float = 0.0):
-    """
-    Move 'obj' along Z so its *bottom* (minZ) sits exactly on the *top* (maxZ)
-    of 'base_obj', plus an optional z_offset (gap). Positive z_offset lifts it.
-    """
-    target = top_z(base_obj) + float(z_offset)
-    dz = target - bottom_z(obj)
-    obj.location.z += dz
-    bpy.context.view_layer.update()
 
 
 import math
@@ -720,6 +758,74 @@ def create_rounded_card(width, height, thickness, radius):
     bpy.context.scene.collection.objects.link(card)
     return card
 
+def create_beveled_card(width, height, thickness, fillet_radius, name="Card"):
+    """
+    Creates a rectangular card from a cube and applies a Bevel modifier to edges.
+    Card is centered on XY; TOP is at Z=0, thickness extends to Z=-thickness.
+    """
+    # Add a unit cube then scale to size/2 (since cube scale is from center)
+    bpy.ops.mesh.primitive_cube_add()
+    card = bpy.context.active_object
+    card.name = name
+
+    # scale (from center) so final extents are width x height x thickness
+    card.scale = (width/2.0, height/2.0, thickness/2.0)
+    # put top at Z=0, bottom at Z=-thickness
+    card.location.z = thickness/2.0 * 1.0  # after scaling, top will be at +th/2
+    # shift down by +th/2 so top becomes 0
+    card.location.z -= thickness/2.0
+
+    # bevel modifier (vertex mode gives nice round corners)
+    bev = card.modifiers.new(name="CardBevel", type='BEVEL')
+    bev.limit_method = 'ANGLE'
+    if hasattr(bev, "angle_limit"):
+        bev.angle_limit = math.radians(60.0)
+    elif hasattr(bev, "angle"):      # older builds
+        bev.angle = math.radians(60.0)
+    bev.profile = 0.5
+    bev.segments = 3
+    bev.width = max(0.0, float(fillet_radius))
+    bev.affect = 'VERTICES'  # round the 4 corners
+
+    # apply transforms & bevel
+    bpy.context.view_layer.update()
+    select_only(card)
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.ops.object.modifier_apply(modifier=bev.name)
+
+    return card
+
+def cut_key_hole(card_obj, card_w, card_h, card_th, hole_d=6.0, hole_margin=4.0, corner="top_right"):
+    """
+    Boolean-cut a cylindrical hole that fully pierces the card.
+    Hole center is inset by 'hole_margin' from chosen corner.
+    """
+    r = float(hole_d) * 0.5
+    # choose corner
+    x = +card_w/2.0 - hole_margin
+    y = +card_h/2.0 - hole_margin
+    if corner == "top_left":     x = -card_w/2.0 + hole_margin; y = +card_h/2.0 - hole_margin
+    if corner == "bottom_right": x = +card_w/2.0 - hole_margin; y = -card_h/2.0 + hole_margin
+    if corner == "bottom_left":  x = -card_w/2.0 + hole_margin; y = -card_h/2.0 + hole_margin
+
+    # add tall cylinder so it surely spans thickness
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=r, depth=card_th*2.5, location=(x, y, -card_th*0.5))
+    cutter = bpy.context.active_object
+    cutter.name = "_KeyHoleCutter"
+
+    # boolean difference
+    bool_mod = card_obj.modifiers.new(name="KeyHole", type='BOOLEAN')
+    bool_mod.operation = 'DIFFERENCE'
+    bool_mod.solver = 'EXACT'
+    bool_mod.object = cutter
+
+    select_only(card_obj)
+    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+    # clean up cutter
+    bpy.data.objects.remove(cutter, do_unlink=True)
+
+
 def obj_xy_aabb(obj):
     """Return (minx, miny, maxx, maxy) AABB for a single object in world space."""
     mn, mx = world_aabb(obj)
@@ -749,6 +855,142 @@ def write_layout_json(path, meta, records):
         json.dump(payload, f, ensure_ascii=False, indent=2)
     print(f"[OK] Layout JSON: {path}")
 
+def enable_exporters():
+    try:
+        import addon_utils
+        for modname in ("io_mesh_stl", "io_scene_stl", "io_scene_obj"):
+            try:
+                addon_utils.enable(modname, default_set=False, persistent=False)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+#STL Exporter, new
+
+def _enable_addon(modname: str) -> bool:
+    try:
+        import addon_utils
+        for m in addon_utils.modules():
+            if m.__name__ == modname:
+                addon_utils.enable(modname, default_set=False, persistent=False)
+                return True
+        # try operator path (older builds)
+        try:
+            bpy.ops.preferences.addon_enable(module=modname)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+def _try_addon_stl_export(path_stl: str) -> bool:
+    ok = _enable_addon("io_mesh_stl") or _enable_addon("io_scene_stl")
+    if not ok:
+        return False
+    # select all meshes
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in bpy.data.objects:
+        if o.type == 'MESH':
+            o.select_set(True)
+    bpy.context.view_layer.objects.active = next((o for o in bpy.context.selected_objects if o.type=='MESH'), None)
+    # operator name varies by build; try both
+    try:
+        if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
+            bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
+            print(f"[OK] Combined STL (addon): {path_stl}")
+            return True
+    except Exception as e:
+        print(f"[WARN] STL addon export failed: {e}")
+    return False
+
+def _iter_world_triangles(obj):
+    """Yield triangles (v0, v1, v2) in world space for a single object (evaluated)."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    eo = obj.evaluated_get(deps)
+    me = eo.to_mesh()
+    try:
+        me.calc_loop_triangles()
+        verts = me.vertices
+        M = eo.matrix_world
+        for tri in me.loop_triangles:
+            v0 = M @ verts[tri.vertices[0]].co
+            v1 = M @ verts[tri.vertices[1]].co
+            v2 = M @ verts[tri.vertices[2]].co
+            yield (v0, v1, v2)
+    finally:
+        eo.to_mesh_clear()
+
+def _write_binary_stl(mesh_objects, path_stl: str):
+    """Write selected mesh objects to a single binary STL (no add-ons)."""
+    # First pass: count triangles
+    tri_count = 0
+    for o in mesh_objects:
+        for _ in _iter_world_triangles(o):
+            tri_count += 1
+
+    with open(path_stl, "wb") as f:
+        header = b"Generated by Blender script (no addon)".ljust(80, b"\0")
+        f.write(header)
+        f.write(struct.pack("<I", tri_count))
+
+        for o in mesh_objects:
+            for v0, v1, v2 in _iter_world_triangles(o):
+                # Compute facet normal
+                n = (v1 - v0).cross(v2 - v0)
+                ln = n.length
+                if ln > 1e-20:
+                    n /= ln
+                else:
+                    n = Vector((0.0, 0.0, 0.0))
+
+                # Pack: normal, v0, v1, v2 (all float32), then attribute uint16
+                f.write(struct.pack(
+                    "<12fH",
+                    float(n.x), float(n.y), float(n.z),
+                    float(v0.x), float(v0.y), float(v0.z),
+                    float(v1.x), float(v1.y), float(v1.z),
+                    float(v2.x), float(v2.y), float(v2.z),
+                    0  # attribute byte count
+                ))
+    print(f"[OK] Combined STL (built-in writer): {path_stl}")
+
+def export_scene_as_stl_new(path_stl: str):
+    """Export ALL mesh objects to a single STL. Tries addon; falls back to built-in writer."""
+    # 1) Try STL add-on
+    if _try_addon_stl_export(path_stl):
+        return
+    # 2) Fallback: write STL directly (no add-ons)
+    mesh_objects = [o for o in bpy.data.objects if o.type == 'MESH']
+    if not mesh_objects:
+        raise RuntimeError("No mesh objects found to export.")
+    _write_binary_stl(mesh_objects, path_stl)
+
+# STL exporter from previous code.
+def export_scene_as_stl(path_stl):
+    enable_exporters()
+    # select all mesh objects
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in bpy.data.objects:
+        if o.type == 'MESH':
+            o.select_set(True)
+    bpy.context.view_layer.objects.active = next((o for o in bpy.context.selected_objects if o.type=='MESH'), None)
+
+    # Try standard STL exporter (varies by build)
+    if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
+        bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
+        print(f"[OK] Combined STL: {path_stl}")
+        return
+
+    # Fallback: OBJ (still one file with all selected)
+    alt = os.path.splitext(path_stl)[0] + ".obj"
+    if hasattr(bpy.ops.wm, "obj_export"):
+        bpy.ops.wm.obj_export(filepath=alt, export_selected_objects=True)
+        print(f"[OK] Combined OBJ (fallback): {alt}")
+    else:
+        bpy.ops.export_scene.obj(filepath=alt, use_selection=True)
+        print(f"[OK] Combined OBJ (fallback legacy): {alt}")
+
 def main():
     args = parse_args()
     ensure_outdir(args.outdir)
@@ -759,7 +1001,12 @@ def main():
 
 
     # Make card (top at Z=0, bottom at -card_thickness)
-    card = create_rounded_card(args.card_width, args.card_height, args.card_thickness, args.fillet)
+    # card = create_rounded_card(args.card_width, args.card_height, args.card_thickness, args.fillet)
+    # Make card (top at Z=0, bottom at -card_thickness)
+    card = create_beveled_card(args.card_width, args.card_height, args.card_thickness, args.fillet)
+    if args.has_hole:
+        cut_key_hole(card_obj=card, card_w=args.card_width, card_h=args.card_height, card_th=args.card_thickness, hole_d=args.hole_d, hole_margin=args.hole_margin, corner=args.hole_corner)
+
     args.card_width -= args.padding_card * 2
     args.card_height -= args.padding_card * 2
     
@@ -852,6 +1099,7 @@ def main():
         fig.location.x = left_x_center
         fig.location.y = lower_y_center
         snap_bottom_to_base_top(fig, card)          # just touching the card
+        sink_into_card(fig, card, max_fraction=1.0/3.0)
         bpy.context.view_layer.update()
 
     # Accessories
@@ -877,6 +1125,7 @@ def main():
         acc.location.x = right_x_center
         acc.location.y = centers_y[i]
         snap_bottom_to_base_top(acc, card)          # just touching the card
+        sink_into_card(acc, card, max_fraction=1.0/3.0)
         bpy.context.view_layer.update()
         acc_objs.append(acc)
 
@@ -932,14 +1181,12 @@ def main():
     }
 
     # File path (default or user-specified)
-    layout_path = os.path.join(args.middir, f"layout.json")
+    layout_path = os.path.join(args.middir, args.model_name_seed + f"_layout.json")
     write_layout_json(layout_path, meta, recs)
 
     # ----------------- export -----------------
     ensure_outdir(args.outdir)
     ensure_middir(args.middir)
-    # Export only the card STL (as requested)
-    card_path = os.path.join(args.outdir, f"card.stl")
 
     group_png = os.path.join(args.middir, f"TextGroup.png")
 
@@ -947,9 +1194,16 @@ def main():
     render_text_group_front_png(text_group, group_png, px=1600, margin=0.08, color=(1,0,0,1))
 
 
-    blend_path = os.path.join(args.outdir, f"model.blend")
+
+    blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
+    stl_path = os.path.join(args.outdir, args.model_name_seed + f"model.stl")
+
     bpy.ops.wm.save_as_mainfile(filepath=blend_path)
     print(f"[OK] Blend: {blend_path}")
+    
+    # Save combined STL of all meshes (card + models)
+    export_scene_as_stl(stl_path)
+    print(f"[OK] STL: {stl_path}")
 
     print("[DONE]")
 
