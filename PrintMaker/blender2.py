@@ -49,6 +49,7 @@ def parse_args():
     p.add_argument("--hole_margin", type=float, default=4.0, help="Inset from card edges (mm)")
     p.add_argument("--hole_corner", type=str, default="top_right", choices=["top_right","top_left","bottom_right","bottom_left"])
     p.add_argument("--model_name_seed", type=str, default="card", choices=["card", "keychain"])
+    p.add_argument("--embed_ratio", type=float, default=0.4, help="Fraction of object height to embed INTO the card (0..1). Default = 2/3.")
 
 
     args = p.parse_args(argv)
@@ -999,6 +1000,66 @@ def _write_binary_stl_all(path_stl: str):
                 ))
     print(f"[OK] Combined STL (addon-free): {path_stl}")
 
+def _boolean_intersect_with_big_upper_box(target_obj, z_min: float, name="_CLIP_ABOVE_BOX", span=5000.0):
+    """
+    Keep only geometry with Z >= z_min by intersecting with a gigantic box whose bottom is at z_min.
+    That trims anything that would poke out the back (below the card's bottom).
+    """
+    # Create a huge cube whose bottom sits at z_min and extends very high upwards
+    bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0.0, 0.0, 0.0))
+    box = bpy.context.active_object
+    box.name = name
+
+    # Dimensions are 2*scale; we want bottom at z_min, so center at z_min + span
+    box.scale = (span, span, span)
+    box.location.z = float(z_min) + float(span)
+
+    # Boolean INTERSECT: keep only the portion inside the big box (i.e., Z >= z_min)
+    bool_mod = target_obj.modifiers.new(name="ClipBelowZ", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.solver = 'EXACT'
+    bool_mod.object = box
+
+    # Apply and clean up
+    select_only(target_obj)
+    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+    bpy.data.objects.remove(box, do_unlink=True)
+
+
+def embed_into_card(obj, card_obj, ratio_inside: float):
+    """
+    1) Touch the card top
+    2) Push object downward by (ratio_inside * object_height)
+    3) If that makes it pass the card bottom, trim the excess below the bottom plane
+    """
+    ratio_inside = float(max(0.0, min(1.0, ratio_inside)))
+
+    # Card planes
+    card_mn, card_mx = world_aabb(card_obj)
+    card_top    = float(card_mx.z)  # should be ~0
+    card_bottom = float(card_mn.z)  # negative ( -thickness )
+
+    # Object dimensions
+    d = world_dims(obj)
+    obj_h = float(d.z)
+    if obj_h <= 1e-9:
+        return
+
+    # Step 1: make object bottom just touch card top
+    cur_bottom = bottom_z(obj)
+    obj.location.z += (card_top - cur_bottom)
+
+    # Step 2: embed by the requested fraction of height
+    embed_depth = ratio_inside * obj_h
+    obj.location.z -= embed_depth
+    bpy.context.view_layer.update()
+
+    # Step 3: if we crossed the bottom, trim anything below the card bottom
+    if bottom_z(obj) < card_bottom - 1e-6:
+        _boolean_intersect_with_big_upper_box(obj, z_min=card_bottom)
+        bpy.context.view_layer.update()
+
+
 def export_scene_as_stl(path_stl: str):
     """First try official add-on (including text/curves via temp meshes), else fallback to built-in writer."""
     if _try_addon_export_stl(path_stl):
@@ -1112,8 +1173,11 @@ def main():
         # place: center of left lower region
         fig.location.x = left_x_center
         fig.location.y = lower_y_center
-        snap_bottom_to_base_top(fig, card)          # just touching the card
-        sink_into_card(fig, card, max_fraction=1.0/3.0)
+
+        # snap_bottom_to_base_top(fig, card)          # just touching the card
+        # sink_into_card(fig, card, max_fraction=1.0/3.0)
+        embed_into_card(fig, card, ratio_inside=args.embed_ratio)
+
         bpy.context.view_layer.update()
 
     # Accessories
@@ -1138,8 +1202,11 @@ def main():
         # place
         acc.location.x = right_x_center
         acc.location.y = centers_y[i]
-        snap_bottom_to_base_top(acc, card)          # just touching the card
-        sink_into_card(acc, card, max_fraction=1.0/3.0)
+        
+        # snap_bottom_to_base_top(acc, card)          # just touching the card
+        # sink_into_card(acc, card, max_fraction=1.0/3.0)
+        embed_into_card(acc, card, ratio_inside=args.embed_ratio)
+
         bpy.context.view_layer.update()
         acc_objs.append(acc)
 
