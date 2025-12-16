@@ -22,7 +22,7 @@ class Program
 {
     static async Task<int> Main(string[] args)
     {
-        try
+        //try
         {
             // ---- defaults ----
             //string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
@@ -32,7 +32,7 @@ class Program
             string subtitle = "Everything You Need";
             int dpi = 600;                    // --dpi
             float minStickerSizes_smm = 10f;    // --min_sticker_mm
-            float cuttingMargin_mm = 0.5f;         // --cut_margin_mm
+            float cuttingMargin_mm = 0.0f;         // --cut_margin_mm
             int cutSmoothing_px = 5;
 
 
@@ -121,30 +121,60 @@ class Program
             Console.WriteLine($"[CFG] in = {inDir}");
             Console.WriteLine($"[CFG] out= {outDir}");
 
-            var t1 = CreateAll(
+            //// Render Textures
+            //Parallel.ForEach(new string[] { "base_character", "accessory_1", "accessory_2", "accessory_3" }, (file) =>
+            //{
+            //    var rows = GlbDiffuseAnalyzer.Analyze(Path.Combine(inDir, file + "_3d.glb"), samplesPerTri: 16);
+            //    OrthoProjector.RenderOrthographicPNG(rows, new Vector3(0, 0, -1), 3000, 3000, 10, Path.Combine(inDir, file + "_r2d.png"));
+            //    var img = Image.Load<Rgba32>(Path.Combine(inDir, file + "_r2d.png"));
+            //    img = CropByTransparency(img, 10);
+            //    img.SaveAsPng(Path.Combine(inDir, file + "_r2d.png"));
+            //});
+            // Basic usage
+
+            //// Render Textures
+            //foreach(var file in new string[] { "base_character", "accessory_1", "accessory_2", "accessory_3" })
+            //{
+            //    await BlenderRenderer.RenderOrthographicAsync(new RenderOptions
+            //    {
+            //        InputGlbPath = Path.Combine(inDir, file + "_3d.glb"),
+            //        OutputImagePath = Path.Combine(inDir, file + "_r2d.png"),
+            //        Plane = BlenderRenderer.ProjectionPlane.XZ,
+            //        ResolutionX = file == "base_character" ? 2000 : 1000,
+            //        ResolutionY = file == "base_character" ? 2000 : 1000
+            //    });
+            //};
+            // In your Main method, add this after the existing tasks:
+            var tasks = new Task[] {
+
+            CreateAll(
                 nameSeed: "keychain",
-                inDir: inDir, 
-                outDir: outDir, 
-                jobID: jobID, 
-                dpi: dpi, 
-                cutSmoothing: cutSmoothing_px, 
-                cuttingMargin_mm: cuttingMargin_mm * 0.3F, 
-                minStickerSizes_smm: minStickerSizes_smm * 0.3F, 
-                width: 130 * 0.3F, 
+                inDir: inDir,
+                outDir: outDir,
+                jobID: jobID,
+                dpi: dpi,
+                cutSmoothing: cutSmoothing_px,
+                cuttingMargin_mm: cuttingMargin_mm * 0.3F,
+                minStickerSizes_smm: minStickerSizes_smm * 0.3F,
+                width: 130 * 0.3F,
                 height: 190 * 0.3F,
-                thickness: 2, 
-                hasHole: true, 
+                thickness: 2,
+                hasHole: true,
                 textHeight: 7,
                 upperRatio: 0.15F,
                 marginFig: 2,
-                marginAcc: 1, 
+                marginAcc: 1,
                 paddingCard: 1.5F,
                 cardFillet: 1,
                 title: title,
-                subtitle: subtitle
-                );
+                subtitle: subtitle,
+                layoutOnly: false,
+                renderResx: 2000,
+                renderResy: 2000,
+                dontCreateBoundaries: true
+                ),
 
-            var t2 = CreateAll(
+            CreateAll(
                 nameSeed: "card",
                 inDir: inDir,
                 outDir: outDir,
@@ -164,21 +194,45 @@ class Program
                 paddingCard: 4,
                 cardFillet: 3,
                 title: title,
-                subtitle: subtitle);
+                subtitle: subtitle,
+                layoutOnly: false,
+                renderResx: 3000,
+                renderResy: 3000,
+                dontCreateBoundaries: true),
 
-            t1.Wait();
-            t2.Wait();
+            };
+
+            Task.WaitAll(tasks);
+            await CreateAllSeparateMarkers(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                dpi: dpi,
+                cardWidth: 130,  // Use your actual card width
+                cardHeight: 190, // Use your actual card height
+                borderSize: 50   // Tune this value based on your render
+            );
+
+            await CreateAllSeparateMarkers(
+                nameSeed: "keychain",
+                inDir: inDir,
+                outDir: outDir,
+                dpi: dpi,
+                cardWidth: 130 * 0.3f,
+                cardHeight: 190 * 0.3f,
+                borderSize: 15   // Scaled down for keychain
+            );
             return 0;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine("[ERROR] " + ex.Message);
-            return 1;
-        }
-    }
-    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle)
-    {
 
+        //catch (Exception ex)
+        //{
+        //    Console.WriteLine("[ERROR] " + ex.Message);
+        //    return 1;
+        //}
+    }
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries)
+    {
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
         BlenderExe: @"blender",
@@ -202,19 +256,26 @@ class Program
         PaddingCard: paddingCard,
         Fillet: cardFillet,
         Title: title, 
-        Subtitle: subtitle
+        Subtitle: subtitle,
+        renderResx: renderResx,
+        renderResy: renderResy
     )
 );
+        if (dontCreateBoundaries)
+            return;
         Console.WriteLine("Composing priting image");
         // result is your LayoutPayload from Blender
         var composedImage = await ComposeAsync(
             layout: result,
             imagesDir: inDir,
-            dpi: dpi
+            dpi: dpi,
+            layoutOnly: layoutOnly
         );
 
         Console.Write("Computing cutting path");
-        var boundaries = BoundaryDetector.DetectBoundaries(composedImage.Clone(), alphaThreshold: 1).FindAll(info => info.BBox.Width * info.BBox.Height / (float)dpi / dpi * 25.4 * 25.4 > minStickerSizes_smm);
+        var boundaries = new List<BoundaryInfo>();
+        if (!layoutOnly)
+            boundaries = BoundaryDetector.DetectBoundaries(composedImage.Clone(), alphaThreshold: 1).FindAll(info => info.BBox.Width * info.BBox.Height / (float)dpi / dpi * 25.4 * 25.4 > minStickerSizes_smm);
 
         // run greedy contour ordering on all paths
         for (int i = 0; i < boundaries.Count; i++)
@@ -227,7 +288,7 @@ class Program
             //BoundaryDetector.PaintBoundaryAA(composedImage, infos[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
             Console.Write(".");
         }
-        var dInd = boundaries.FindIndex(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels));
+        //var dInd = boundaries.FindIndex(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels));
         //debugPath(composedImage, boundaries.Find(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels)).BoundaryPixels, "F:\\CustomStarterPack\\CustomStarterPack\\ImgDebugger\\bin\\Debug\\net8.0-windows");
         // Append the image-sized rounded rectangle (e.g., 3 mm radius)
         float mm = cardFillet;
@@ -237,13 +298,14 @@ class Program
             width: composedImage.Width,
             height: composedImage.Height,
             radiusPx: radiusPx,
-            cornerSegments: 20
+            cornerSegments: 20,
+            layoutOnly: layoutOnly
         );
         boundaries.Add(frame);
         Console.WriteLine(boundaries.Count + " cuts prepared");
 
         Image<Rgba32> finalImage = composedImage;
-        if (cuttingMargin_mm > 0)
+        if (cuttingMargin_mm > 0 && !layoutOnly)
         {
             Console.WriteLine("Generating content for cutting margin");
             // Lets create bleed by picking up some inwards pixels.
@@ -270,24 +332,135 @@ class Program
         Console.WriteLine("Saving data");
         
         var refImage = finalImage.Clone();
-        SavePngWithDpi(finalImage, Path.Combine(outDir, nameSeed + "_printing.png"), dpi);
-        Console.WriteLine("Saved printing file at: " + Path.Combine(outDir, nameSeed + "_printing.png"));
+        if (layoutOnly)
+        {
+            for (int i = 0; i < boundaries.Count; i++)
+                BoundaryDetector.PaintBoundaryAA(refImage, boundaries[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
 
-        for (int i = 0; i < boundaries.Count; i++)
-            BoundaryDetector.PaintBoundaryAA(refImage, boundaries[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
+            SavePngWithDpi(refImage, Path.Combine(outDir, nameSeed + "_placement.png"), dpi);
+            Console.WriteLine("Saved printing file at: " + Path.Combine(outDir, nameSeed + "_placement.png"));
+        }
+        else
+        {
+            SavePngWithDpi(finalImage, Path.Combine(outDir, nameSeed + "_printing.png"), dpi);
+            Console.WriteLine("Saved printing file at: " + Path.Combine(outDir, nameSeed + "_printing.png"));
 
-        SavePngWithDpi(refImage, Path.Combine(outDir, nameSeed + "_reference.png"), dpi);
-        Console.WriteLine("Saved reference image at: " + Path.Combine(outDir, nameSeed + "_reference.png"));
+            for (int i = 0; i < boundaries.Count; i++)
+                BoundaryDetector.PaintBoundaryAA(refImage, boundaries[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
 
-        // Save vectors as DXF (units = inches; pixel→inch via DPI)
-        DxfExporterNetDxf.Save(Path.Combine(outDir, nameSeed + "_cutting.dxf"), boundaries, composedImage.Height, dpi);
+            SavePngWithDpi(refImage, Path.Combine(outDir, nameSeed + "_reference.png"), dpi);
+            Console.WriteLine("Saved reference image at: " + Path.Combine(outDir, nameSeed + "_reference.png"));
 
-        Console.WriteLine("Saved cutting DXF at: " + Path.Combine(outDir, nameSeed + "_cutting.dxf"));
+            // Save vectors as DXF (units = inches; pixel→inch via DPI)
+            DxfExporterNetDxf.Save(Path.Combine(outDir, nameSeed + "_cutting.dxf"), boundaries, composedImage.Height, dpi);
 
+            Console.WriteLine("Saved cutting DXF at: " + Path.Combine(outDir, nameSeed + "_cutting.dxf"));
+        }
 
         Console.WriteLine("All Done. Exiting...");
         // OR to distinguish holes:
         // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);
+    }
+    static async Task CreateAllSeparateMarkers(string nameSeed, string inDir, string outDir, int dpi,
+    float cardWidth, float cardHeight, int borderSize = 50)
+    {
+        Console.WriteLine($"Processing separate markers for: {nameSeed}");
+
+        // Paths for the Blender render
+        string renderPath = Path.Combine(inDir, nameSeed + $"_scene_render.png");
+
+        if (!File.Exists(renderPath))
+        {
+            Console.WriteLine($"Warning: Scene render not found at {renderPath}");
+            return;
+        }
+
+        // Load the Blender render
+        using var renderedImageOrg = await Image.LoadAsync<Rgba32>(renderPath);
+        using var renderedImage = CropByTransparency(renderedImageOrg, 10);
+        // Convert card dimensions from mm to pixels
+        double mmToPx = dpi / 25.4;
+        int targetWidthPx = (int)Math.Round(cardWidth * mmToPx);
+        int targetHeightPx = (int)Math.Round(cardHeight * mmToPx);
+
+        Console.WriteLine($"Target dimensions: {targetWidthPx}x{targetHeightPx} pixels");
+
+        // Resize the render to target dimensions first
+        renderedImage.Mutate(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new SixLabors.ImageSharp.Size(targetWidthPx, targetHeightPx),
+            Mode = ResizeMode.Stretch,
+            Sampler = KnownResamplers.Bicubic
+        }));
+
+        // 1. Create main image (without border markers)
+        var mainImage = RemoveBorder(renderedImage, borderSize);
+
+        // Save main image (without border markers)
+        string mainOutputPath = Path.Combine(outDir, $"{nameSeed}_main.png");
+        SavePngWithDpi(mainImage, mainOutputPath, dpi);
+        Console.WriteLine($"Saved main image (no border markers): {mainOutputPath}");
+
+        // 2. Create markers only image (only border markers)
+        var markersImage = KeepOnlyBorder(renderedImage, borderSize);
+
+        // Save markers only image
+        string markersOutputPath = Path.Combine(outDir, $"{nameSeed}_markers.png");
+        SavePngWithDpi(markersImage, markersOutputPath, dpi);
+        Console.WriteLine($"Saved markers only: {markersOutputPath}");
+
+        // 3. Save the original combined render
+        string originalOutputPath = Path.Combine(outDir, $"{nameSeed}_reference.png");
+        SavePngWithDpi(renderedImage, originalOutputPath, dpi);
+        Console.WriteLine($"Saved original combined: {originalOutputPath}");
+    }
+
+    static Image<Rgba32> RemoveBorder(Image<Rgba32> src, int borderSize)
+    {
+        // Create a copy
+        var result = src.Clone();
+
+        // Make border region transparent
+        for (int y = 0; y < result.Height; y++)
+        {
+            var row = result.DangerousGetPixelRowMemory(y).Span;
+
+            for (int x = 0; x < result.Width; x++)
+            {
+                // Check if pixel is in border region
+                if (x < borderSize || x >= result.Width - borderSize ||
+                    y < borderSize || y >= result.Height - borderSize)
+                {
+                    row[x] = new Rgba32(0, 0, 0, 0); // Make transparent
+                }
+            }
+        }
+
+        return result;
+    }
+
+    static Image<Rgba32> KeepOnlyBorder(Image<Rgba32> src, int borderSize)
+    {
+        // Create a copy
+        var result = src.Clone();
+
+        // Make center region transparent (keep only border)
+        for (int y = 0; y < result.Height; y++)
+        {
+            var row = result.DangerousGetPixelRowMemory(y).Span;
+
+            for (int x = 0; x < result.Width; x++)
+            {
+                // Check if pixel is NOT in border region (i.e., in center)
+                if (x >= borderSize && x < result.Width - borderSize &&
+                    y >= borderSize && y < result.Height - borderSize)
+                {
+                    row[x] = new Rgba32(0, 0, 0, 0); // Make transparent
+                }
+            }
+        }
+
+        return result;
     }
 
     // ---- help printer ----
@@ -314,7 +487,7 @@ Examples:
   PrintMaker --job 001
   PrintMaker --job 042 --workdir ""C:\Projects\StarterPack"" --dpi 300 --min_sticker_mm 12.5 --cut_margin_mm 2
   PrintMaker --job=007 --dpi=600
-Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model figure.glb, up to four accessories accessory_1_3d.glb…accessory_3_3d.glb, their rembg counterparts figure.png and accessory_1_2d.png…accessory_3_2D.png, plus any extra art; under jobs/<id>/out we read if present layout_<id>.json (from Blender) and we write Blender artifacts (model.blend, optional *_text*.png), and the final outputs print<id>.png and print<id>.dxf; the app therefore requires read access to jobs/<id>/in and write access to both jobs/<id>/in and jobs/<id>/out (e.g., to save intermediate or normalized files).
+Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model figure.glb, up to four accessories accessory_1_3d.glb…accessory_3_3d.glb, their rembg counterparts figure.png and accessory_1_r2d.png…accessory_3_r2d.png, plus any extra art; under jobs/<id>/out we read if present layout_<id>.json (from Blender) and we write Blender artifacts (model.blend, optional *_text*.png), and the final outputs print<id>.png and print<id>.dxf; the app therefore requires read access to jobs/<id>/in and write access to both jobs/<id>/in and jobs/<id>/out (e.g., to save intermediate or normalized files).
 ");
         return 2; // non-zero for usage/error
     }
@@ -322,7 +495,7 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
     /// Compose a 300 DPI canvas and place items using LayoutPayload geometry.
     /// </summary>
     /// <param name="layout">Blender JSON result.</param>
-    /// <param name="imagesDir">Folder containing base_character_2d.png, accessory_1_2d.png, …</param>
+    /// <param name="imagesDir">Folder containing base_character_r2d.png, accessory_1_r2d.png, …</param>
     /// <param name="outPath">Output PNG file.</param>
     /// <param name="dpi">Target DPI (default 300).</param>
     /// <param name="yUpCoordinates">If true, flip Y (Blender Y-up -> image Y-down).</param>
@@ -330,10 +503,11 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
     public static async Task<Image<Rgba32>> ComposeAsync(
         LayoutPayload layout,
         string imagesDir,
-        int dpi = 300)
+        int dpi = 300,
+        bool layoutOnly = false)
     {
         if (layout is null) throw new ArgumentNullException(nameof(layout));
-        if (string.IsNullOrWhiteSpace(imagesDir)) throw new ArgumentException("imagesDir required");
+        if (string.IsNullOrWhiteSpace(imagesDir) && !layoutOnly) throw new ArgumentException("imagesDir required");
 
         double mmToPx = dpi / 25.4; // same as before
         int canvasW = (int)Math.Round(layout.Meta.Card.W * mmToPx);
@@ -342,7 +516,8 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
         using var canvas = new Image<Rgba32>(canvasW, canvasH);
         canvas.Metadata.HorizontalResolution = dpi;
         canvas.Metadata.VerticalResolution = dpi;
-
+        if (layoutOnly)
+            return canvas.Clone();
 
         // ---- Global coordinate transform (mm → px) ----
         // Blender center-origin (0,0) with Y-up  -->  image top-left (0,0) with Y-down
@@ -474,29 +649,29 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
     private static string ResolveImagePath(string imagesDir, string itemName)
     {
         // Examples:
-        // name: "figure" -> images\base_character_2d.png
-        // name: "accessory_1" -> images\accessory_1_2d.png
-        // name: "accessory_2" -> images\accessory_2_2d.png
+        // name: "figure" -> images\base_character_r2d.png
+        // name: "accessory_1" -> images\accessory_1_r2d.png
+        // name: "accessory_2" -> images\accessory_2_r2d.png
         // If the Blender names differ (e.g., "acc1"), tweak the parsing here.
 
         var name = itemName.Trim().ToLowerInvariant();
 
         if (name.Contains("figure"))
-            return Path.Combine(imagesDir, "base_character_2d.png");
+            return Path.Combine(imagesDir, "base_character_r2d.png");
 
         if (name.StartsWith("accessory_"))
         {
             // pull the trailing index
             var idxPart = name.Substring("accessory_".Length);
-            return Path.Combine(imagesDir, $"accessory_{idxPart}_2d.png");
+            return Path.Combine(imagesDir, $"accessory_{idxPart}_r2d.png");
         }
         if (name == "textgroup")
         {
             return Path.Combine(imagesDir, $"TextGroup.png");
         }
 
-        // Fallback: try "<name>_2d.png"
-        return Path.Combine(imagesDir, $"{name}_2d.png");
+        // Fallback: try "<name>_r2d.png"
+        return Path.Combine(imagesDir, $"{name}_r2d.png");
     }
 
     /// <summary>
@@ -768,7 +943,8 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
             CompressionLevel = PngCompressionLevel.Level6,
             FilterMethod = PngFilterMethod.Adaptive,
             InterlaceMethod = PngInterlaceMode.None,
-            TransparentColorMode = PngTransparentColorMode.Preserve
+            TransparentColorMode = PngTransparentColorMode.Preserve,
+            SkipMetadata = false
         };
 
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);

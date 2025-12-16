@@ -518,7 +518,7 @@ static class BoundaryDetector
     (-1, 0), (-1,-1), ( 0,-1), ( 1,-1)
 };
 
-    public static BoundaryInfo MakeRoundedRectBoundary(int id, int width, int height, float radiusPx, int cornerSegments = 12)
+    public static BoundaryInfo MakeRoundedRectBoundary(int id, int width, int height, float radiusPx, int cornerSegments = 12, bool layoutOnly = false)
     {
         // Clamp radius
         float r = MathF.Max(0f, MathF.Min(radiusPx, MathF.Min((width - 1) * 0.5f, (height - 1) * 0.5f)));

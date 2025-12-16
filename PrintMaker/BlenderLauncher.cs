@@ -43,8 +43,14 @@ public sealed class BlenderLayoutRunner
         double HoleD = 3.0,               // --hole_d (mm)
         double HoleMargin = 4.0,          // --hole_margin (mm)
         string HoleCorner = "top_right",  // --hole_corner: top_right|top_left|bottom_right|bottom_left
-        string ModelNameSeed = "card"         // --model_name_seed
-    );
+        string ModelNameSeed = "card",         // --model_name_seed
+        int renderResx = 1000,
+        int renderResy = 1000
+    )
+    {
+        public int RenderResx { get; internal set; }
+        public int RenderResy { get; internal set; }
+    }
 
     // === PUBLIC API ===
     public static async Task<LayoutPayload> RunAsync(BlenderLayoutOptions opt, CancellationToken ct = default)
@@ -85,6 +91,8 @@ public sealed class BlenderLayoutRunner
             "--text_extr", opt.TextExtr.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--text_lift", opt.TextLift.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--model_name_seed", opt.ModelNameSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--render_resx", opt.RenderResx.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--render_resy", opt.RenderResy.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         if (opt.Acc is not null)
@@ -99,6 +107,9 @@ public sealed class BlenderLayoutRunner
         if (opt.FlipHead) args.Add("--flip_head");
         if (opt.AccFrontUp) args.Add("--acc_front_up");
         if (opt.SaveBlend) args.Add("--save_blend");
+
+        args.Add("--render_resx"); args.Add(opt.renderResx.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        args.Add("--render_resy"); args.Add(opt.renderResy.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         if (opt.HasHole) args.Add("--has_hole");
         args.AddRange(new[]
