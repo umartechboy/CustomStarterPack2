@@ -59,6 +59,18 @@ def parse_args():
     p.add_argument("--render_resx", type=int, default=1920, help="Render resolution X")
     p.add_argument("--render_resy", type=int, default=1080, help="Render resolution Y")
 
+    # Jig generation
+    p.add_argument("--jigs",          nargs="*",  default=[],
+                   help="View angles to create jigs for: front back left right top bottom (+x -x +y -y +z -z)")
+    p.add_argument("--jig_wall",      type=float, default=4.0,
+                   help="Jig wall thickness (mm) added around figure bounding box")
+    p.add_argument("--jig_clearance", type=float, default=0.4,
+                   help="Mesh inflation amount (mm) for 3-D print tolerance")
+    p.add_argument("--jig_step",      type=float, default=0.5,
+                   help="Swept-boolean step pitch (mm); smaller = more accurate cavity")
+    p.add_argument("--jig_depth",     type=float, default=0.0,
+                   help="Cavity depth (mm) from open face; 0 = full figure depth")
+
     args = p.parse_args(argv)
     # Limit accessories to 3 as requested
     args.acc = list(args.acc[:3])
@@ -70,6 +82,8 @@ import bpy
 _GEOM_TYPES = {"MESH", "CURVE", "FONT", "SURFACE"}  # what we want in STL
 
 def main():
+    
+    print(f"Begin blender script")
     args = parse_args()
     ensure_outdir(args.outdir)
     ensure_middir(args.middir)
@@ -161,6 +175,7 @@ def main():
 
     # ----------------- import + orient + fit + place -----------------
     # Figure
+    print(f"Importing figure")
     fig = import_model_with_textures(args.figure, "Figure")
     slot_depth = 10000
     if fig:        
@@ -181,6 +196,7 @@ def main():
         sink_further_and_cut_protrusion(fig, card)       # Second sinking + cut
         bpy.context.view_layer.update()
 
+    print(f"Importing accessories")
     # Accessories
     acc_objs = []
     acc_count = min(3, len(args.acc))
@@ -209,6 +225,8 @@ def main():
         acc_objs.append(acc)
 
     # ----------------- placement export (top-view XY) -----------------
+    
+    print(f"Placement")
     recs = []
 
     # Card (use world dims; your card is centered at origin with top on Z=0)
@@ -267,13 +285,13 @@ def main():
     ensure_outdir(args.outdir)
     ensure_middir(args.middir)
     
-    print(f"Rendering scene with texture")    
-    render_path = os.path.join(args.middir, args.model_name_seed + f"_scene_render.png")
-    render_scene_ortho(
-        output_path=render_path,
-        res_x=args.render_resx,
-        res_y=args.render_resy
-    )
+    # print(f"Rendering scene with texture")    
+    # render_path = os.path.join(args.middir, args.model_name_seed + f"_scene_render.png")
+    # render_scene_ortho(
+    #     output_path=render_path,
+    #     res_x=args.render_resx,
+    #     res_y=args.render_resy
+    # )
 
 #def someMore():
     group_png = os.path.join(args.middir, f"TextGroup.png")
@@ -286,14 +304,37 @@ def main():
     blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
     stl_path = os.path.join(args.outdir, args.model_name_seed + f"_model.stl")
 
-    bpy.ops.wm.save_as_mainfile(filepath=blend_path)
-    print(f"[OK] Blend: {blend_path}")
+    # bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+    # print(f"[OK] Blend: {blend_path}")
     
     # Save combined STL of all meshes (card + models)
-    export_scene_as_stl(stl_path)
-    print(f"[OK] STL: {stl_path}")
+    # export_scene_as_stl(stl_path)
+    # print(f"[OK] STL: {stl_path}")
 
-
+    # ---- Jig generation ----
+    # Must happen AFTER the main STL is exported because we add/remove temporary
+    # objects during jig construction. We operate on the already-scaled fig object.
+    
+    print(f"Generating jigs: args.jigs={args.jigs!r}  fig={'ok' if fig else 'None'}")
+    if fig and args.jigs:
+        print(f"\n[JIG] Generating {len(args.jigs)} jig(s): {args.jigs}")
+        for angle in args.jigs:
+            try:
+                create_jig_for_angle(
+                    fig_obj=fig,
+                    angle=angle,
+                    jig_wall=args.jig_wall,
+                    clearance=args.jig_clearance,
+                    step_mm=args.jig_step,
+                    jig_depth=args.jig_depth,
+                    outdir=args.outdir,
+                    job_id=args.job_id,
+                )
+            except Exception as e:
+                print(f"[JIG] ERROR for angle '{angle}': {e}")
+                import traceback; traceback.print_exc()
+    elif args.jigs:
+        print("[JIG] Skipping jigs: figure was not loaded successfully.")
 
     print("[DONE]")
 

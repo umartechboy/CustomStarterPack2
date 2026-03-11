@@ -171,7 +171,8 @@ class Program
                 layoutOnly: false,
                 renderResx: 2000,
                 renderResy: 2000,
-                dontCreateBoundaries: true
+                dontCreateBoundaries: true,
+                jigs: new[] { "front", "top", "left" }
                 ),
 
             CreateAll(
@@ -198,7 +199,8 @@ class Program
                 layoutOnly: false,
                 renderResx: 3000,
                 renderResy: 3000,
-                dontCreateBoundaries: true),
+                dontCreateBoundaries: true,
+                jigs: null),
 
             };
 
@@ -231,7 +233,7 @@ class Program
         //    return 1;
         //}
     }
-    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries)
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries, IEnumerable<string>? jigs = null)
     {
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
@@ -258,7 +260,8 @@ class Program
         Title: title, 
         Subtitle: subtitle,
         renderResx: renderResx,
-        renderResy: renderResy
+        renderResy: renderResy,
+        Jigs: jigs
     )
 );
         if (dontCreateBoundaries)

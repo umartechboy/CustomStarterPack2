@@ -898,3 +898,306 @@ def import_model_with_textures(path, name_hint):
                     print(f"    Has texture nodes: {has_texture}")
     
     return root
+
+# ============================= JIG GENERATION ==============================
+# A "jig" is a rectangular block with a swept figure-shaped cavity so the
+# figure can be inserted and held at a fixed, repeatable position on a flat-
+# bed UV printer.  One jig is produced per requested angle ("front", "top", …).
+# ----------------------------------------------------------------------------
+
+def _angle_to_axes(angle: str):
+    """
+    Return (entry_vec, horiz_axis, vert_axis) for a named angle.
+
+    entry_vec  : unit Vector pointing INTO the jig (figure enters from this side).
+    horiz_axis : index 0=X, 1=Y, 2=Z for the jig block's "width" dim.
+    vert_axis  : index 0=X, 1=Y, 2=Z for the jig block's "height" dim.
+    depth_axis : index for the sweep / depth dim.
+
+    Coordinate frame: +X right, +Y forward (into screen), +Z up.
+    """
+    ALIASES = {
+        "front":  "-y",
+        "back":   "+y",
+        "right":  "+x",
+        "left":   "-x",
+        "top":    "+z",
+        "bottom": "-z",
+    }
+    key = angle.strip().lower()
+    key = ALIASES.get(key, key)  # resolve named aliases
+
+    TABLE = {
+        # key : (entry_vector,         width_axis, height_axis, depth_axis)
+        "+x": (Vector(( 1, 0, 0)),  1, 2, 0),   # enter from +X  horiz=Y vert=Z
+        "-x": (Vector((-1, 0, 0)),  1, 2, 0),   # enter from -X
+        "+y": (Vector(( 0, 1, 0)),  0, 2, 1),   # enter from +Y  horiz=X vert=Z
+        "-y": (Vector(( 0,-1, 0)),  0, 2, 1),   # enter from -Y  (front)
+        "+z": (Vector(( 0, 0, 1)),  0, 1, 2),   # enter from +Z  horiz=X vert=Y
+        "-z": (Vector(( 0, 0,-1)),  0, 1, 2),   # enter from -Z
+    }
+    if key not in TABLE:
+        raise ValueError(f"Unknown jig angle '{angle}'. Use: front/back/left/right/top/bottom or ±x/±y/±z")
+    return TABLE[key]   # (entry_vec, width_axis, height_axis, depth_axis)
+
+
+def _duplicate_obj(src):
+    """Duplicate src (single object + data), returning the new object."""
+    select_only(src)
+    bpy.ops.object.duplicate(linked=False)
+    dup = bpy.context.active_object
+    dup.name = src.name + "_JigCopy"
+    return dup
+
+
+def _apply_all_modifiers(obj):
+    """Apply all modifiers on obj in order."""
+    select_only(obj)
+    bpy.context.view_layer.update()
+    for mod in list(obj.modifiers):
+        try:
+            bpy.ops.object.modifier_apply(modifier=mod.name)
+        except Exception as e:
+            print(f"[JIG] Could not apply modifier {mod.name}: {e}")
+
+
+def _inflate_obj(obj, amount: float):
+    """
+    Expand mesh outward uniformly by 'amount' mm using Solidify modifier
+    in 'Even Thickness' mode with an outward offset.
+    For very small amounts still produces a clean shell.
+    """
+    if amount <= 0.0:
+        return
+    mod = obj.modifiers.new(name="JigInflate", type='SOLIDIFY')
+    mod.thickness = amount * 2.0     # solidify adds in/out; total = thickness
+    mod.offset = 1.0                 # push outward only
+    mod.use_even_offset = True
+    mod.use_rim = True
+    mod.use_flip_normals = False
+    _apply_all_modifiers(obj)
+
+
+def _create_jig_block(cx, cy, cz, W, H, D, name="JigBlock"):
+    """
+    Create a solid rectangular block centred on (cx, cy, cz) with given dims.
+    Returns the object.
+    """
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx, cy, cz))
+    block = bpy.context.active_object
+    block.name = name
+    block.scale = (W, H, D)
+    select_only(block)
+    bpy.ops.object.transform_apply(scale=True)
+    return block
+
+
+def _boolean_diff(target, cutter, solver='FAST'):
+    """
+    Apply a BOOLEAN DIFFERENCE of cutter from target.
+    Uses FAST solver for speed during sweep; caller may pass 'EXACT' for final.
+    """
+    mod = target.modifiers.new(name="_JigBool", type='BOOLEAN')
+    mod.operation = 'DIFFERENCE'
+    mod.solver = solver
+    mod.object = cutter
+    select_only(target)
+    try:
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    except Exception as e:
+        print(f"[JIG] Boolean apply error: {e}")
+        # If modifier couldn't apply, remove it gracefully
+        try:
+            target.modifiers.remove(mod)
+        except Exception:
+            pass
+
+
+def _write_stl_single_obj(obj, path_stl: str):
+    """Export a single object to a binary STL file."""
+    import struct as _struct
+
+    deps = bpy.context.evaluated_depsgraph_get()
+    eo = obj.evaluated_get(deps)
+    me = eo.to_mesh()
+    if not me:
+        print(f"[JIG] Warning: no mesh data for {obj.name}, skipping STL")
+        return
+
+    try:
+        me.calc_loop_triangles()
+        M = eo.matrix_world
+        tris = [(M @ me.vertices[t.vertices[0]].co,
+                 M @ me.vertices[t.vertices[1]].co,
+                 M @ me.vertices[t.vertices[2]].co)
+                for t in me.loop_triangles]
+    finally:
+        eo.to_mesh_clear()
+
+    os.makedirs(os.path.dirname(os.path.abspath(path_stl)), exist_ok=True)
+    with open(path_stl, "wb") as f:
+        header = f"Jig STL - {obj.name}".encode("utf-8").ljust(80, b"\0")
+        f.write(header)
+        f.write(_struct.pack("<I", len(tris)))
+        for v0, v1, v2 in tris:
+            n = (v1 - v0).cross(v2 - v0)
+            ln = n.length
+            if ln > 1e-20:
+                n /= ln
+            else:
+                n = Vector((0, 0, 0))
+            f.write(_struct.pack(
+                "<12fH",
+                float(n.x), float(n.y), float(n.z),
+                float(v0.x), float(v0.y), float(v0.z),
+                float(v1.x), float(v1.y), float(v1.z),
+                float(v2.x), float(v2.y), float(v2.z),
+                0
+            ))
+    print(f"[OK] Jig STL: {path_stl}")
+
+
+def create_jig_for_angle(fig_obj, angle: str, jig_wall: float, clearance: float,
+                          step_mm: float, jig_depth: float,
+                          outdir: str, job_id: str):
+    """
+    Create a UV-printer holding jig for 'fig_obj' viewed from 'angle'.
+
+    Parameters
+    ----------
+    fig_obj    : The SCALED figure Blender object (mesh, already in final position).
+    angle      : View name: front/back/left/right/top/bottom or +x/-x/+y/-y/+z/-z.
+    jig_wall   : Wall thickness added on all sides around figure bounding box (mm).
+    clearance  : Mesh inflation amount (mm) applied before sweep for print tolerance.
+    step_mm    : Sweep step pitch (mm) for the swept boolean cavity.
+    jig_depth  : Cavity depth (mm) from open face. 0 = full figure depth + back wall.
+    outdir     : Output directory for the STL.
+    job_id     : Job identifier string for the filename.
+    """
+    print(f"\n[JIG] Creating jig for angle='{angle}' clearance={clearance}mm step={step_mm}mm wall={jig_wall}mm")
+
+    entry_vec, width_axis, height_axis, depth_axis = _angle_to_axes(angle)
+    # safe label for filenames
+    label = angle.strip().lower().replace("+", "pos").replace("-", "neg")
+
+    # ---- 1. Duplicate the figure (work on a copy; do NOT destroy the original) ----
+    fig_copy = _duplicate_obj(fig_obj)
+    # Reset location so we work in a neutral place (world origin).
+    # We'll use AABB of the copy to define the jig block dimensions.
+    bpy.context.view_layer.update()
+
+    # ---- 2. Inflate copy by clearance ----
+    _inflate_obj(fig_copy, clearance)
+    bpy.context.view_layer.update()
+
+    # ---- 3. Get AABB of inflated copy ----
+    mn, mx = world_aabb(fig_copy)
+    dims = [float(mx.x - mn.x), float(mx.y - mn.y), float(mx.z - mn.z)]  # [X, Y, Z]
+    centers = [float((mn.x + mx.x) * 0.5),
+               float((mn.y + mx.y) * 0.5),
+               float((mn.z + mx.z) * 0.5)]
+
+    fig_depth_extent = dims[depth_axis]   # how deep the figure is along sweep axis
+    fig_width        = dims[width_axis]
+    fig_height       = dims[height_axis]
+
+    # ---- 4. Decide jig block dimensions ----
+    jig_W = fig_width  + 2.0 * jig_wall        # block width  (perpendicular to view)
+    jig_H = fig_height + 2.0 * jig_wall        # block height (perpendicular to view)
+
+    if jig_depth > 0.0:
+        cavity_depth = float(jig_depth)
+    else:
+        cavity_depth = fig_depth_extent         # cavity fits the whole figure
+
+    jig_D = cavity_depth + jig_wall            # back wall + cavity
+
+    # ---- 5. Build jig block ----
+    # Centre W and H on the figure's W/H centroid.
+    # Along entry axis: block starts flush with the figure's entry-face and extends inward.
+    # entry_vec points INTO the jig, so the open face is on the entry side.
+
+    blk_centers = list(centers)
+    # Place block centre along depth_axis so open face aligns with figure's entry-face.
+    # entry_vec[depth_axis] tells sign of approach:
+    entry_sign = float(entry_vec[depth_axis])  # +1 or -1
+    fig_entry_face = (mx[depth_axis] if entry_sign < 0 else mn[depth_axis])
+    # open face of block at fig_entry_face; block extends in -entry_sign direction
+    blk_centers[depth_axis] = fig_entry_face - entry_sign * (jig_D * 0.5)
+
+    jig_block_dims = [0.0, 0.0, 0.0]
+    jig_block_dims[width_axis]  = jig_W
+    jig_block_dims[height_axis] = jig_H
+    jig_block_dims[depth_axis]  = jig_D
+
+    jig_block = _create_jig_block(
+        cx=blk_centers[0], cy=blk_centers[1], cz=blk_centers[2],
+        W=jig_block_dims[0], H=jig_block_dims[1], D=jig_block_dims[2],
+        name=f"Jig_{label}"
+    )
+    bpy.context.view_layer.update()
+
+    # ---- 6. Swept boolean subtraction ----
+    # We slide the inflated figure copy into the block from the open face.
+    # At each step we cut (BOOLEAN DIFFERENCE) its current volume from the block.
+    # step_mm pitch ensures concave pockets are carved out correctly.
+
+    num_steps = max(1, int(math.ceil(fig_depth_extent / step_mm)))
+    # Total sweep travel: move cutter from fully outside into fully inside.
+    # Start position: cutter is positioned just outside the open face.
+    # End position: cutter has travelled one full fig_depth_extent inside the block.
+
+    # Offset vector: each step moves the cutter in the entry direction (into the block)
+    step_vec = Vector((
+        entry_vec.x * step_mm,
+        entry_vec.y * step_mm,
+        entry_vec.z * step_mm,
+    ))
+    # This is the inverse of the entry direction (cutter moves from outside to inside)
+    # entry_vec points the direction FROM which the figure enters, so the cutter
+    # must move OPPOSITE to entry_vec to go deeper into the jig.
+    step_vec = -step_vec   # move INTO the block
+
+    # Move fig_copy to the start position: far outside the block along entry axis
+    # i.e., shift it so it sits just beyond the open face, then sweep inward.
+    entry_sign_f = float(entry_vec[depth_axis])
+    start_offset = [0.0, 0.0, 0.0]
+    # Place the copy so its entry-face is flush with the block's open face (step 0 starts here)
+    start_offset[depth_axis] = 0.0  # already positioned at figure location; no extra shift needed
+
+    print(f"[JIG] Sweep: {num_steps} steps × {step_mm}mm along axis {['X','Y','Z'][depth_axis]}")
+
+    for i in range(num_steps + 1):
+        # We need a fresh cutter for each step (boolean modifies mesh topology)
+        # Duplicate fig_copy as a throwaway cutter
+        select_only(fig_copy)
+        bpy.ops.object.duplicate(linked=False)
+        step_cutter = bpy.context.active_object
+        step_cutter.name = f"_JigStepCutter_{i}"
+
+        # Shift by i * step_vec from starting position
+        offset = step_vec * float(i)
+        step_cutter.location.x += offset.x
+        step_cutter.location.y += offset.y
+        step_cutter.location.z += offset.z
+        bpy.context.view_layer.update()
+
+        # Boolean DIFFERENCE: cut from jig block
+        _boolean_diff(jig_block, step_cutter, solver='FAST')
+
+        # Remove throwaway cutter
+        bpy.data.objects.remove(step_cutter, do_unlink=True)
+
+    # ---- 7. Final cleanup ----
+    bpy.data.objects.remove(fig_copy, do_unlink=True)
+    bpy.context.view_layer.update()
+
+    # ---- 8. Export jig as STL ----
+    stl_path = os.path.join(outdir, f"{job_id}_jig_{label}.stl")
+    _write_stl_single_obj(jig_block, stl_path)
+
+    # Remove jig from scene (keep scene clean)
+    bpy.data.objects.remove(jig_block, do_unlink=True)
+
+    print(f"[JIG] Done → {stl_path}")
+    return stl_path
