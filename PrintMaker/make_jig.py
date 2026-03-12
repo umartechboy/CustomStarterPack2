@@ -338,6 +338,21 @@ if __name__ == "__main__":
     # 7. Save Combined Blend
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUTPUT_PATH)
+
+    print("[PROCESS] Exporting Jigs Metadata...")
+    import json
+    meta_path = os.path.join(args.output_dir, f"{args.model_name_seed}_jigs_meta.json")
+    bbox = [raw_model.matrix_world @ mathutils.Vector(b) for b in raw_model.bound_box]
+    meta_data = {
+        "master_size": {"x": MASTER_X, "y": MASTER_Y, "z": MASTER_Z},
+        "figure_bounds": {
+            "min_x": min(b.x for b in bbox), "min_y": min(b.y for b in bbox), "min_z": min(b.z for b in bbox),
+            "max_x": max(b.x for b in bbox), "max_y": max(b.y for b in bbox), "max_z": max(b.z for b in bbox)
+        }
+    }
+    with open(meta_path, 'w') as f:
+        json.dump(meta_data, f, indent=4)
+
     print(f"[SUCCESS] Low-Profile Production Jig Generation Complete! Exiting.")
     import sys
     sys.exit(0)

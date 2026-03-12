@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -12,6 +12,8 @@ using System.Security.Cryptography.X509Certificates;
 using System.Diagnostics;
 using SixLabors.ImageSharp.Formats.Png;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Net.Http.Headers;
 using Path = System.IO.Path;
 using SixLabors.ImageSharp.Advanced;
@@ -147,80 +149,80 @@ class Program
             // In your Main method, add this after the existing tasks:
             var tasks = new Task[] {
 
-            //CreateAll(
-            //    nameSeed: "keychain",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    jobID: jobID,
-            //    dpi: dpi,
-            //    cutSmoothing: cutSmoothing_px,
-            //    cuttingMargin_mm: cuttingMargin_mm * 0.3F,
-            //    minStickerSizes_smm: minStickerSizes_smm * 0.3F,
-            //    width: 130 * 0.3F,
-            //    height: 190 * 0.3F,
-            //    thickness: 2,
-            //    hasHole: true,
-            //    textHeight: 7,
-            //    upperRatio: 0.15F,
-            //    marginFig: 2,
-            //    marginAcc: 1,
-            //    paddingCard: 1.5F,
-            //    cardFillet: 1,
-            //    title: title,
-            //    subtitle: subtitle,
-            //    layoutOnly: false,
-            //    renderResx: 2000,
-            //    renderResy: 2000,
-            //    dontCreateBoundaries: true
-            //    ),
-
             CreateAll(
-                nameSeed: "card",
+                nameSeed: "keychain",
                 inDir: inDir,
                 outDir: outDir,
                 jobID: jobID,
                 dpi: dpi,
                 cutSmoothing: cutSmoothing_px,
-                cuttingMargin_mm: cuttingMargin_mm,
-                minStickerSizes_smm: minStickerSizes_smm,
-                width: 130,
-                height: 190,
-                thickness: 5,
-                hasHole: false,
-                textHeight: 30,
-                upperRatio: 0.2F,
-                marginFig: 4,
-                marginAcc: 2,
-                paddingCard: 4,
-                cardFillet: 3,
+                cuttingMargin_mm: cuttingMargin_mm * 0.3F,
+                minStickerSizes_smm: minStickerSizes_smm * 0.3F,
+                width: 130 * 0.3F,
+                height: 190 * 0.3F,
+                thickness: 2,
+                hasHole: true,
+                textHeight: 7,
+                upperRatio: 0.15F,
+                marginFig: 2,
+                marginAcc: 1,
+                paddingCard: 1.5F,
+                cardFillet: 1,
                 title: title,
                 subtitle: subtitle,
                 layoutOnly: false,
-                renderResx: 300,
-                renderResy: 300,
-                dontCreateBoundaries: true),
+                renderResx: 200,
+                renderResy: 200,
+                dontCreateBoundaries: true
+                ),
+
+            //CreateAll(
+            //    nameSeed: "card",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    jobID: jobID,
+            //    dpi: dpi,
+            //    cutSmoothing: cutSmoothing_px,
+            //    cuttingMargin_mm: cuttingMargin_mm,
+            //    minStickerSizes_smm: minStickerSizes_smm,
+            //    width: 130,
+            //    height: 190,
+            //    thickness: 5,
+            //    hasHole: false,
+            //    textHeight: 30,
+            //    upperRatio: 0.2F,
+            //    marginFig: 4,
+            //    marginAcc: 2,
+            //    paddingCard: 4,
+            //    cardFillet: 3,
+            //    title: title,
+            //    subtitle: subtitle,
+            //    layoutOnly: false,
+            //    renderResx: 300,
+            //    renderResy: 300,
+            //    dontCreateBoundaries: true),
 
             };
 
             Task.WaitAll(tasks);
-            //await CreateAllSeparateMarkers(
-            //    nameSeed: "keychain",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    dpi: dpi,
-            //    cardWidth: 130 * 0.3f,
-            //    cardHeight: 190 * 0.3f,
-            //    borderSize: 15   // Scaled down for keychain
-            //);
             await CreateAllSeparateMarkers(
-                nameSeed: "card",
+                nameSeed: "keychain",
                 inDir: inDir,
                 outDir: outDir,
                 dpi: dpi,
-                cardWidth: 130,  // Use your actual card width
-                cardHeight: 190, // Use your actual card height
-                borderSize: 50   // Tune this value based on your render
+                cardWidth: 130 * 0.3f,
+                cardHeight: 190 * 0.3f,
+                borderSize: 15   // Scaled down for keychain
             );
+            //await CreateAllSeparateMarkers(
+            //    nameSeed: "card",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    dpi: dpi,
+            //    cardWidth: 130,  // Use your actual card width
+            //    cardHeight: 190, // Use your actual card height
+            //    borderSize: 50   // Tune this value based on your render
+            //);
 
             return 0;
         }
@@ -245,8 +247,8 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        DontRunBlenderForRender: false,
-        DontRunBlenderForJigs: false,
+        DontRunBlenderForRender: true,
+        DontRunBlenderForJigs: true,
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
         HoleMargin: 5,
@@ -268,106 +270,87 @@ class Program
         GridHeight: 50.0
     )
 );
-        string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
-        var figureActual = result.Meta.FigureSlotBounds?.FigureActual;
-        var slotSize = result.Meta.FigureSlotBounds?.SlotSize;
-
-        if (figureActual != null && slotSize != null && !layoutOnly)
+        string jigsMetaPath = Path.Combine(outDir, $"{nameSeed}_jigs_meta.json");
+        if (File.Exists(jigsMetaPath) && !layoutOnly)
         {
-            double figW = figureActual.Size.W;
-            double figH = figureActual.Size.H;
-            double figD = figureActual.Size.D;
-            double margin = 0.1; // Blender orthogonal camera margin
-
-            // Jigs Canvas Sizes matching make_jig.py MASTER constraints:
-            // MASTER_X = figH, MASTER_Y = figW, MASTER_Z = 50.0
-
-            double slotW = slotSize.W;
-            double slotH = slotSize.H;
-
-            Console.WriteLine("Slot bounds: {0}x{1}", slotW, slotH);
+            var json = await File.ReadAllTextAsync(jigsMetaPath);
+            var jigsMeta = JsonSerializer.Deserialize<JigsMeta>(json);
             
-            double ratio = 50.0 / figH;
-
-            foreach (var side in jigSides)
+            if (jigsMeta != null)
             {
-                string jigPngPath = Path.Combine(inDir, $"{nameSeed}_jig_render_{side}.png");
-                if (!File.Exists(jigPngPath)) continue;
+                double figW = jigsMeta.FigureBounds.MaxX - jigsMeta.FigureBounds.MinX;
+                double figD = jigsMeta.FigureBounds.MaxY - jigsMeta.FigureBounds.MinY;
+                double figH = jigsMeta.FigureBounds.MaxZ - jigsMeta.FigureBounds.MinZ;
 
-                double ortho_w = 0, ortho_h = 0;
-                double canvasW_mm = 0, canvasH_mm = 0;
-                bool rotate90 = false;
+                double slotW = jigsMeta.MasterSize.X; // MASTER_X in python
+                double slotH = jigsMeta.MasterSize.Y; // MASTER_Y
+                double masterZ = jigsMeta.MasterSize.Z; // MASTER_Z
 
-                if (side == "+Z" || side == "-Z") 
-                { 
-                    ortho_w = figW; 
-                    ortho_h = figD; 
-                    canvasW_mm = slotH; 
-                    canvasH_mm = slotW; 
+                string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
+                foreach (var side in jigSides)
+                {
+                    string jigPngPath = Path.Combine(inDir, $"{nameSeed}_jig_render_{side}.png");
+                    if (!File.Exists(jigPngPath)) continue;
+
+                    double canvasW_mm = 0, canvasH_mm = 0;
+                    double ortho_w = 0, ortho_h = 0;
+                    
+                    if (side == "+Z" || side == "-Z") 
+                    { 
+                        canvasW_mm = slotW; 
+                        canvasH_mm = slotH; 
+                        ortho_w = figW;
+                        ortho_h = figD;
+                    }
+                    else if (side == "+Y" || side == "-Y") 
+                    { 
+                        canvasW_mm = slotW; 
+                        canvasH_mm = masterZ;
+                        ortho_w = figW;
+                        ortho_h = figH;
+                    }
+                    else if (side == "+X" || side == "-X") 
+                    { 
+                        canvasW_mm = slotH; 
+                        canvasH_mm = masterZ;
+                        ortho_w = figD;
+                        ortho_h = figH;
+                    }
+
+                    using var renderedJigUncropped = await Image.LoadAsync<Rgba32>(jigPngPath);
+                    if (side == "-X")
+                    {
+                        renderedJigUncropped.Mutate(x => x.Rotate(90));
+                    }
+                    else if (side == "+X")
+                    {
+                        renderedJigUncropped.Mutate(x => x.Rotate(-90));
+                    }
+                    using var renderedJig = CropByTransparency(renderedJigUncropped, 10);
+
+                    int targetCanvasPxW = (int)Math.Round(canvasW_mm * dpi / 25.4);
+                    int targetCanvasPxH = (int)Math.Round(canvasH_mm * dpi / 25.4);
+                    
+                    int resizedRenderPxW = (int)Math.Round(ortho_w * dpi / 25.4);
+                    int resizedRenderPxH = (int)Math.Round(ortho_h * dpi / 25.4);
+
+                    renderedJig.Mutate(x => x.Resize(new ResizeOptions {
+                        Size = new SixLabors.ImageSharp.Size(resizedRenderPxW, resizedRenderPxH),
+                        Mode = ResizeMode.Stretch,
+                        Sampler = KnownResamplers.Bicubic
+                    }));
+
+                    var composedJigImage = new Image<Rgba32>(targetCanvasPxW, targetCanvasPxH);
+                    int posX = (targetCanvasPxW - resizedRenderPxW) / 2;
+                    int posY = (targetCanvasPxH - resizedRenderPxH) / 2;
+                    
+                    composedJigImage.Mutate(ctx => ctx.DrawImage(renderedJig, new Point(posX, posY), 1f));
+
+                    string jigNameSeed = $"{nameSeed}_jig_{side}";
+                    GeneratePrintableAssets(composedJigImage, jigNameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, 0f, layoutOnly);
+                    
+                    composedJigImage.Dispose();
                 }
-                else if (side == "+Y" || side == "-Y") 
-                { 
-                    ortho_w = figW; 
-                    ortho_h = figH; 
-                    canvasW_mm = slotH; 
-                    canvasH_mm = 50.0; 
-                }
-                else if (side == "+X" || side == "-X") 
-                { 
-                    ortho_w = figH; 
-                    ortho_h = figD; 
-                    canvasW_mm = slotW; 
-                    canvasH_mm = 50.0; 
-                    rotate90 = true;
-                }
-
-                double scene_aspect = ortho_h > 0 ? (ortho_w / ortho_h) : 1.0;
-                double render_aspect = renderResx / (double)renderResy;
-                double ortho_scale;
-                
-                if (scene_aspect > render_aspect) {
-                    ortho_scale = ortho_w * (1.0 + margin * 2.0);
-                } else {
-                    double needed_width = ortho_h * render_aspect;
-                    ortho_scale = Math.Max(needed_width, ortho_h) * (1.0 + margin * 2.0);
-                }
-                
-                double ortho_scale_y = ortho_scale / render_aspect;
-
-                double renderW_mm = ortho_scale * ratio;
-                double renderH_mm = ortho_scale_y * ratio;
-
-                using var renderedJig = await Image.LoadAsync<Rgba32>(jigPngPath);
-                
-                if (rotate90) {
-                    renderedJig.Mutate(x => x.Rotate(270));
-                    double temp = renderW_mm;
-                    renderW_mm = renderH_mm;
-                    renderH_mm = temp;
-                }
-
-                int targetCanvasPxW = (int)Math.Round(canvasW_mm * dpi / 25.4);
-                int targetCanvasPxH = (int)Math.Round(canvasH_mm * dpi / 25.4);
-                
-                int resizedRenderPxW = (int)Math.Round(renderW_mm * dpi / 25.4);
-                int resizedRenderPxH = (int)Math.Round(renderH_mm * dpi / 25.4);
-
-                renderedJig.Mutate(x => x.Resize(new ResizeOptions {
-                    Size = new SixLabors.ImageSharp.Size(resizedRenderPxW, resizedRenderPxH),
-                    Mode = ResizeMode.Stretch,
-                    Sampler = KnownResamplers.Bicubic
-                }));
-
-                var composedJigImage = new Image<Rgba32>(targetCanvasPxW, targetCanvasPxH);
-                int posX = (targetCanvasPxW - resizedRenderPxW) / 2;
-                int posY = (targetCanvasPxH - resizedRenderPxH) / 2;
-                
-                composedJigImage.Mutate(ctx => ctx.DrawImage(renderedJig, new Point(posX, posY), 1f));
-
-                string jigNameSeed = $"{nameSeed}_jig_{side}";
-                GeneratePrintableAssets(composedJigImage, jigNameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, 0f, layoutOnly);
-                
-                composedJigImage.Dispose();
             }
         }
 
@@ -1186,4 +1169,27 @@ Assumptions: under jobs/<id>/in (relative to --workdir) we read a main model fig
         public void Dispose() { foreach (var i in _items) i.Dispose(); }
     }
 
+}
+
+public class JigsMeta
+{
+    [JsonPropertyName("master_size")] public MasterSize MasterSize { get; set; } = new();
+    [JsonPropertyName("figure_bounds")] public FigureBounds FigureBounds { get; set; } = new();
+}
+
+public class MasterSize
+{
+    [JsonPropertyName("x")] public double X { get; set; }
+    [JsonPropertyName("y")] public double Y { get; set; }
+    [JsonPropertyName("z")] public double Z { get; set; }
+}
+
+public class FigureBounds
+{
+    [JsonPropertyName("min_x")] public double MinX { get; set; }
+    [JsonPropertyName("min_y")] public double MinY { get; set; }
+    [JsonPropertyName("min_z")] public double MinZ { get; set; }
+    [JsonPropertyName("max_x")] public double MaxX { get; set; }
+    [JsonPropertyName("max_y")] public double MaxY { get; set; }
+    [JsonPropertyName("max_z")] public double MaxZ { get; set; }
 }
