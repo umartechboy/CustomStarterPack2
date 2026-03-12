@@ -45,13 +45,7 @@ public sealed class BlenderLayoutRunner
         string HoleCorner = "top_right",  // --hole_corner: top_right|top_left|bottom_right|bottom_left
         string ModelNameSeed = "card",         // --model_name_seed
         int renderResx = 1000,
-        int renderResy = 1000,
-        // ---- Jig generation ----
-        IEnumerable<string>? Jigs = null,  // --jigs: front back left right top bottom
-        double JigWall = 4.0,              // --jig_wall (mm)
-        double JigClearance = 0.4,         // --jig_clearance (mm)
-        double JigStep = 0.5,              // --jig_step (mm)
-        double JigDepth = 0.0             // --jig_depth (mm, 0 = full depth)
+        int renderResy = 1000
     )
     {
         public int RenderResx { get; internal set; }
@@ -61,7 +55,6 @@ public sealed class BlenderLayoutRunner
     // === PUBLIC API ===
     public static async Task<LayoutPayload> RunAsync(BlenderLayoutOptions opt, CancellationToken ct = default)
     {
-        Console.WriteLine($"[DBG-ENTRY] RunAsync called. opt.Jigs={(opt.Jigs == null ? "NULL" : "[" + string.Join(",", opt.Jigs) + "]")}");
         if (string.IsNullOrWhiteSpace(opt.OutDir))
             throw new ArgumentException("--outdir is required", nameof(opt.OutDir));
         if (string.IsNullOrWhiteSpace(opt.MidDir))
@@ -133,27 +126,10 @@ public sealed class BlenderLayoutRunner
             args.Add(Quote(opt.ModelNameSeed));
         }
 
-        // ---- Jig args ----
-        var jigList = opt.Jigs?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-        Console.WriteLine($"[DBG] opt.Jigs={(opt.Jigs == null ? "null" : string.Join(",", opt.Jigs))}  jigList={(jigList == null ? "null" : $"[{string.Join(",", jigList)}] count={jigList.Count}")}");
-        if (jigList is { Count: > 0 })
-        {
-            args.Add("--jigs");
-            args.AddRange(jigList);
-            args.Add("--jig_wall");      args.Add(opt.JigWall.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            args.Add("--jig_clearance"); args.Add(opt.JigClearance.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            args.Add("--jig_step");      args.Add(opt.JigStep.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            args.Add("--jig_depth");     args.Add(opt.JigDepth.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        var blenderArgs = string.Join(" ", args);
-        Console.WriteLine("Sending args: " + blenderArgs);
-        Console.WriteLine($"[DBG] Blender args: {blenderArgs}");
-
         var psi = new ProcessStartInfo
         {
             FileName = opt.BlenderExe,
-            Arguments = blenderArgs,
+            Arguments = string.Join(" ", args),
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
