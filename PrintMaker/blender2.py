@@ -12,177 +12,6 @@ from math import degrees
 from mathutils import Vector, Matrix
 
 
-# ==========================================
-# HELPER: CREATE BOX FROM BOUNDS
-# ==========================================
-def create_box(name, min_bounds, max_bounds):
-    """Creates a cube perfectly bounded by two 3D coordinate vectors."""
-    dx = max_bounds[0] - min_bounds[0]
-    dy = max_bounds[1] - min_bounds[1]
-    dz = max_bounds[2] - min_bounds[2]
-    
-    cx = (max_bounds[0] + min_bounds[0]) / 2.0
-    cy = (max_bounds[1] + min_bounds[1]) / 2.0
-    cz = (max_bounds[2] + min_bounds[2]) / 2.0
-    
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    box = bpy.context.active_object
-    box.name = name
-    box.scale = (dx, dy, dz)
-    box.location = (cx, cy, cz)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    return box
-
-# ==========================================
-# CORE 3D SPATIAL JIG FUNCTION
-# ==========================================
-def generate_jig_in_place(
-    raw_model, 
-    master_min, 
-    master_max, 
-    overlap, 
-    bottom_thickness=1.0, 
-    inflation=0.4, 
-    target_tris=50000, 
-    direction='+Z'
-):
-    print(f"\n[FUNC] Generating low-profile {direction} Jig...")
-    
-    # 1. Duplicate working model
-    working_model = raw_model.copy()
-    working_model.data = raw_model.data.copy()
-    working_model.name = f"Working_Cutter_{direction}"
-    bpy.context.collection.objects.link(working_model)
-    bpy.context.view_layer.objects.active = working_model
-
-    # 2. Get absolute model bounds
-    bbox = [working_model.matrix_world @ mathutils.Vector(b) for b in working_model.bound_box]
-    mod_min = (min(b.x for b in bbox), min(b.y for b in bbox), min(b.z for b in bbox))
-    mod_max = (max(b.x for b in bbox), max(b.y for b in bbox), max(b.z for b in bbox))
-
-    # 3. SPATIAL MAPPING LOGIC (Updated for Low-Profile Thickness)
-    clearance = 5.0 
-    inf = 1000.0    
-    
-    if direction == '+Z': # Jig on Bottom
-        jig_min = (master_min[0], master_min[1], mod_min[2] - bottom_thickness)
-        jig_max = (master_max[0], master_max[1], mod_min[2] + overlap)
-        cut_min = (-inf, -inf, mod_min[2] + overlap + clearance)
-        cut_max = (inf, inf, inf)
-        sweep_vec = mathutils.Vector((0, 0, 1))
-        
-    elif direction == '-Z': # Jig on Top
-        jig_min = (master_min[0], master_min[1], mod_max[2] - overlap)
-        jig_max = (master_max[0], master_max[1], mod_max[2] + bottom_thickness)
-        cut_min = (-inf, -inf, -inf)
-        cut_max = (inf, inf, mod_max[2] - overlap - clearance)
-        sweep_vec = mathutils.Vector((0, 0, -1))
-        
-    elif direction == '+X': # Jig on Left
-        jig_min = (mod_min[0] - bottom_thickness, master_min[1], master_min[2])
-        jig_max = (mod_min[0] + overlap, master_max[1], master_max[2])
-        cut_min = (mod_min[0] + overlap + clearance, -inf, -inf)
-        cut_max = (inf, inf, inf)
-        sweep_vec = mathutils.Vector((1, 0, 0))
-        
-    elif direction == '-X': # Jig on Right
-        jig_min = (mod_max[0] - overlap, master_min[1], master_min[2])
-        jig_max = (mod_max[0] + bottom_thickness, master_max[1], master_max[2])
-        cut_min = (-inf, -inf, -inf)
-        cut_max = (mod_max[0] - overlap - clearance, inf, inf)
-        sweep_vec = mathutils.Vector((-1, 0, 0))
-        
-    elif direction == '+Y': # Jig on Front
-        jig_min = (master_min[0], mod_min[1] - bottom_thickness, master_min[2])
-        jig_max = (master_max[0], mod_min[1] + overlap, master_max[2])
-        cut_min = (-inf, mod_min[1] + overlap + clearance, -inf)
-        cut_max = (inf, inf, inf)
-        sweep_vec = mathutils.Vector((0, 1, 0))
-        
-    elif direction == '-Y': # Jig on Back
-        jig_min = (master_min[0], mod_max[1] - overlap, master_min[2])
-        jig_max = (master_max[0], mod_max[1] + bottom_thickness, master_max[2])
-        cut_min = (-inf, -inf, -inf)
-        cut_max = (inf, mod_max[1] - overlap - clearance, inf)
-        sweep_vec = mathutils.Vector((0, -1, 0))
-
-    # 4. Trim Excessive Model
-    trim_cutter = create_box(f"Trim_{direction}", cut_min, cut_max)
-    bpy.context.view_layer.objects.active = working_model
-    trim_mod = working_model.modifiers.new(type="BOOLEAN", name="Trim")
-    trim_mod.object = trim_cutter
-    trim_mod.operation = 'DIFFERENCE'
-    trim_mod.solver = 'EXACT'
-    bpy.ops.object.modifier_apply(modifier=trim_mod.name)
-    bpy.data.objects.remove(trim_cutter, do_unlink=True)
-
-    # 5. Simplify & Inflate
-    working_model.data.calc_loop_triangles()
-    if len(working_model.data.loop_triangles) > target_tris:
-        decimate_mod = working_model.modifiers.new(type="DECIMATE", name="Optimize")
-        decimate_mod.decimate_type = 'COLLAPSE'
-        decimate_mod.ratio = target_tris / len(working_model.data.loop_triangles)
-        bpy.ops.object.modifier_apply(modifier=decimate_mod.name)
-
-    bpy.ops.object.editmode_toggle()
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.normals_make_consistent(inside=False)
-    bpy.ops.object.editmode_toggle()
-
-    disp_mod = working_model.modifiers.new(type="DISPLACE", name="Inflate")
-    disp_mod.strength = inflation
-    disp_mod.mid_level = 0.0
-    bpy.ops.object.modifier_apply(modifier=disp_mod.name)
-
-    # 6. Create the specific Jig Box side
-    final_jig = create_box(f"Jig_{direction}", jig_min, jig_max)
-
-    # 7. Sweep the Master Cutter
-    move_distance = overlap + 2.0 
-    step_size = 0.5
-    steps = int(math.ceil(move_distance / step_size))
-
-    bpy.ops.object.select_all(action='DESELECT')
-    cutter_parts = []
-    for i in range(steps + 1):
-        dup = working_model.copy()
-        dup.data = working_model.data.copy()
-        bpy.context.collection.objects.link(dup)
-        
-        translation = sweep_vec * (i * step_size)
-        dup.location.x += translation.x
-        dup.location.y += translation.y
-        dup.location.z += translation.z
-        cutter_parts.append(dup)
-
-    for part in cutter_parts: part.select_set(True)
-    bpy.context.view_layer.objects.active = cutter_parts[0]
-    bpy.ops.object.join()
-    master_cutter = bpy.context.active_object
-
-    remesh_mod = master_cutter.modifiers.new(type='REMESH', name='Fuse_Slices')
-    remesh_mod.mode = 'VOXEL'
-    remesh_mod.voxel_size = 0.5
-    bpy.ops.object.modifier_apply(modifier=remesh_mod.name)
-
-    # 8. Punch the cavity
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.context.view_layer.objects.active = final_jig
-
-    final_cut = final_jig.modifiers.new(type="BOOLEAN", name="Jig_Cut")
-    final_cut.object = master_cutter
-    final_cut.operation = 'DIFFERENCE'
-    final_cut.solver = 'EXACT' 
-    final_cut.double_threshold = 0.0001 
-    bpy.ops.object.modifier_apply(modifier=final_cut.name)
-
-    # 9. Cleanup
-    bpy.data.objects.remove(working_model, do_unlink=True)
-    bpy.data.objects.remove(master_cutter, do_unlink=True)
-
-    return final_jig
-
-
 # ----------------------------- CLI -----------------------------
 def parse_args():
     argv = sys.argv
@@ -1839,23 +1668,6 @@ def main():
         sink_further_and_cut_protrusion(fig, card)       # Second sinking + cut
         bpy.context.view_layer.update()
 
-        # # Dynamic jig generation for the figure within its grid bounds
-        # if args.jigs_requested:
-        #     master_min = (left_x_center - fig_slot_w/2.0, lower_y_center - fig_slot_h/2.0, 0.0)
-        #     master_max = (left_x_center + fig_slot_w/2.0, lower_y_center + fig_slot_h/2.0, args.grid_height)
-        #     jigs_to_generate = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
-        #     for d in jigs_to_generate:
-        #         overlap_val = args.overlap_z if 'Z' in d else (args.overlap_x if 'X' in d else args.overlap_y)
-        #         jig_obj = generate_jig_in_place(
-        #             raw_model=fig,
-        #             master_min=master_min,
-        #             master_max=master_max,
-        #             overlap=overlap_val,
-        #             bottom_thickness=1.0, 
-        #             inflation=args.inflation_margin,
-        #             direction=d
-        #         )
-
     # Accessories
     acc_objs = []
     acc_count = min(3, len(args.acc))
@@ -1868,8 +1680,9 @@ def main():
         if not os.path.exists(path): continue
         acc = import_model_with_textures(path, f"Accessory_{i+1}")
         if not acc: continue
+        acc_needs_roll = needs_x_roll(acc)
         apply_xforms(acc)
-        if needs_roll:
+        if acc_needs_roll:
             roll_about_parallel_world_x(acc, -90)
             
         center_xy(acc); rest_on_z0(acc)
@@ -1916,6 +1729,16 @@ def main():
         rot_z_rad=text_group.matrix_world.to_euler('XYZ').z
     ))
 
+    figure_bounds = None
+    if fig:
+        f_mn, f_mx = world_aabb(fig)
+        f_size = f_mx - f_mn
+        f_center = (f_mn + f_mx) * 0.5
+        figure_bounds = {
+            "center": {"x": float(f_center.x), "y": float(f_center.y), "z": float(f_center.z)},
+            "size": {"w": float(f_size.x), "h": float(f_size.y), "d": float(f_size.z)}
+        }
+
     # Meta (use post-padding W/H so they match actual layout space)
     meta = {
         "job_id": args.job_id,
@@ -1931,6 +1754,11 @@ def main():
             "figure": {"w": float(fig_slot_w), "h": float(fig_slot_h)},
             "accessories": {"w": float(acc_slot_w), "h": float(acc_slot_h)},
             "text_strip": {"h": float(args.card_height/5.0)}
+        },
+        "figure_slot_bounds": {
+            "slot_center": {"x": float(left_x_center), "y": float(lower_y_center), "z": 0.0},
+            "slot_size": {"w": float(fig_slot_w), "h": float(fig_slot_h)},
+            "figure_actual": figure_bounds
         }
     }
 
@@ -1953,21 +1781,21 @@ def main():
 #def someMore():
     group_png = os.path.join(args.middir, f"TextGroup.png")
 
-    # diagnose_text_group_front(text_group, px=1600, margin=0.08)
-    # render_text_group_front_png(text_group, group_png, px=1600, margin=0.08, color=(1,0,0,1))
+    diagnose_text_group_front(text_group, px=1600, margin=0.08)
+    render_text_group_front_png(text_group, group_png, px=1600, margin=0.08, color=(1,0,0,1))
 
     # --- Optional: Export Jigs individually ---
-    # if args.jigs_requested:
-    #     jigs_to_export = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
-    #     for d in jigs_to_export:
-    #         jig_name = f"Jig_{d}"
-    #         if jig_name in bpy.data.objects:
-    #             bpy.ops.object.select_all(action='DESELECT')
-    #             jig_obj = bpy.data.objects[jig_name]
-    #             jig_obj.select_set(True)
-    #             bpy.context.view_layer.objects.active = jig_obj
-    #             jig_stl_path = os.path.join(args.outdir, f"{args.model_name_seed}_{jig_name}.stl")
-    #             bpy.ops.export_mesh.stl(filepath=jig_stl_path, use_selection=True)
+    if args.jigs_requested:
+        jigs_to_export = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
+        for d in jigs_to_export:
+            jig_name = f"Jig_{d}"
+            if jig_name in bpy.data.objects:
+                bpy.ops.object.select_all(action='DESELECT')
+                jig_obj = bpy.data.objects[jig_name]
+                jig_obj.select_set(True)
+                bpy.context.view_layer.objects.active = jig_obj
+                jig_stl_path = os.path.join(args.outdir, f"{args.model_name_seed}_{jig_name}.stl")
+                bpy.ops.export_mesh.stl(filepath=jig_stl_path, use_selection=True)
 
     blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
     stl_path = os.path.join(args.outdir, args.model_name_seed + f"_model.stl")

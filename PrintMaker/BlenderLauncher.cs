@@ -198,6 +198,65 @@ public sealed class BlenderLayoutRunner
         var payload = JsonSerializer.Deserialize<LayoutPayload>(json, JsonOptions)
                       ?? throw new InvalidDataException("JSON deserialized to null.");
 
+        if (!string.IsNullOrWhiteSpace(opt.JigsRequested) && payload.Meta.FigureSlotBounds != null)
+        {
+            var bounds = payload.Meta.FigureSlotBounds;
+            if (bounds.SlotCenter != null && bounds.SlotSize != null)
+            {
+                var makeJigPath = Path.Combine(Path.GetDirectoryName(opt.ScriptPath) ?? "", "make_jig.py");
+                var jigArgs = new List<string>
+                {
+                    Quote(makeJigPath),
+                    "--input_glb", Quote(opt.Figure),
+                    "--output_dir", Quote(opt.OutDir),
+                    "--model_name_seed", Quote(opt.ModelNameSeed),
+                    "--slot_center", bounds.SlotCenter.X.ToString(System.Globalization.CultureInfo.InvariantCulture), bounds.SlotCenter.Y.ToString(System.Globalization.CultureInfo.InvariantCulture), bounds.SlotCenter.Z.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--slot_size", bounds.SlotSize.W.ToString(System.Globalization.CultureInfo.InvariantCulture), bounds.SlotSize.H.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--jigs_requested", Quote(opt.JigsRequested),
+                    "--overlap_x", opt.OverlapX.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--overlap_y", opt.OverlapY.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--overlap_z", opt.OverlapZ.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--inflation_margin", opt.InflationMargin.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                };
+
+                var jigPsi = new ProcessStartInfo
+                {
+                    FileName = "python.exe",
+                    Arguments = string.Join(" ", jigArgs),
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                Console.WriteLine("Args given to jig generation script:" + jigPsi.Arguments);
+                using var jigProc = new Process { StartInfo = jigPsi, EnableRaisingEvents = true };
+                jigProc.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data is not null) Console.Out.WriteLine($"[JIG] {e.Data}");
+                };
+                jigProc.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data is not null) Console.Error.WriteLine($"[JIG-ERR] {e.Data}");
+                };
+                if (!jigProc.Start())
+                    throw new InvalidOperationException("Failed to start python process for jig generation.");
+
+                jigProc.BeginOutputReadLine();
+                jigProc.BeginErrorReadLine();
+
+                await jigProc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+                if (jigProc.ExitCode != 0)
+                {
+                    var msg = $"Jig generation exited with code {jigProc.ExitCode}.";
+                    throw new ApplicationException(msg);
+                }
+            }
+        }
+
         return payload;
     }
 
@@ -228,6 +287,7 @@ public sealed class Meta
     [JsonPropertyName("units")] public string Units { get; set; } = "mm";
     [JsonPropertyName("card")] public Card Card { get; set; } = new();
     [JsonPropertyName("slots")] public Slots Slots { get; set; } = new();
+    [JsonPropertyName("figure_slot_bounds")] public FigureSlotBounds? FigureSlotBounds { get; set; }
 }
 
 public sealed class Card
@@ -258,3 +318,20 @@ public sealed class Item
 }
 
 public sealed class XY { [JsonPropertyName("x")] public double X { get; set; } [JsonPropertyName("y")] public double Y { get; set; } }
+
+public sealed class FigureSlotBounds
+{
+    [JsonPropertyName("slot_center")] public XYZ? SlotCenter { get; set; }
+    [JsonPropertyName("slot_size")] public Size? SlotSize { get; set; }
+    [JsonPropertyName("figure_actual")] public FigureActual? FigureActual { get; set; }
+}
+
+public sealed class XYZ { [JsonPropertyName("x")] public double X { get; set; } [JsonPropertyName("y")] public double Y { get; set; } [JsonPropertyName("z")] public double Z { get; set; } }
+
+public sealed class FigureActual
+{
+    [JsonPropertyName("center")] public XYZ? Center { get; set; }
+    [JsonPropertyName("size")] public Size3D? Size { get; set; }
+}
+
+public sealed class Size3D { [JsonPropertyName("w")] public double W { get; set; } [JsonPropertyName("h")] public double H { get; set; } [JsonPropertyName("d")] public double D { get; set; } }
