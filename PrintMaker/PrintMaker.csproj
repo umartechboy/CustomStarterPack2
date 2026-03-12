@@ -34,15 +34,6 @@
     <None Update="blender2.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="blender_utils.py">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="blender_export.py">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="blender_render.py">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Update="blender3.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
