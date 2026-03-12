@@ -103,7 +103,7 @@ def generate_jig_in_place(
     # 3. SPATIAL MAPPING LOGIC (Updated for Low-Profile Thickness)
     clearance = 5.0 
     inf = 1000.0    
-    
+    # 73, 145, 50
     if direction == '+Z': # Jig on Bottom
         jig_min = (master_min[0], master_min[1], mod_min[2] - bottom_thickness)
         jig_max = (master_max[0], master_max[1], mod_min[2] + overlap)
@@ -264,7 +264,7 @@ if __name__ == "__main__":
     raw_model.name = "Original_Model"
     bpy.context.view_layer.objects.active = raw_model
     
-    HEIGHT = args.grid_height
+    HEIGHT = args.slot_size[1] - 2 # Y in render script is Z here.
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     bbox = [raw_model.matrix_world @ mathutils.Vector(b) for b in raw_model.bound_box]
     z_height = max(b.z for b in bbox) - min(b.z for b in bbox)
@@ -282,7 +282,9 @@ if __name__ == "__main__":
 
     print("[PROCESS] Calculating spatial constraints...")
     # 4. Process Control Variables
-    MASTER_X, MASTER_Y, MASTER_Z = args.slot_size[1], args.slot_size[0], args.grid_height
+    MASTER_X, MASTER_Y, MASTER_Z = args.slot_size[0], args.grid_height, args.slot_size[1] # X, Y in render script is X and Z here. Slot Height is Y
+    # Card
+    # 73, 145, 50
     master_min = (args.slot_center[0] - MASTER_X/2, args.slot_center[1] - MASTER_Y/2, args.slot_center[2] - MASTER_Z/2)
     master_max = (args.slot_center[0] + MASTER_X/2, args.slot_center[1] + MASTER_Y/2, args.slot_center[2] + MASTER_Z/2)
 

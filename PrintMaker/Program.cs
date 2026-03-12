@@ -22,8 +22,17 @@ using System.Runtime.Intrinsics.Arm;
 
 class Program
 {
+    static bool dontRunBlender2PyInDebug = true;
+    static bool dontRunJigsInDebug = true;
+    static string makeArtifactInDebug = "null"; // "" for both, "null" for none, "card", "keychain"
+    static int resXyInDebug = 300;
+    static bool isDebug = false;
     static async Task<int> Main(string[] args)
     {
+        if (args == null)
+            isDebug = true;
+        else if (args.Length == 0)
+            isDebug = true;
         //try
         {
             // ---- defaults ----
@@ -171,36 +180,36 @@ class Program
                 title: title,
                 subtitle: subtitle,
                 layoutOnly: false,
-                renderResx: 200,
-                renderResy: 200,
+                renderResx: 2000,
+                renderResy: 2000,
                 dontCreateBoundaries: true
                 ),
 
-            //CreateAll(
-            //    nameSeed: "card",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    jobID: jobID,
-            //    dpi: dpi,
-            //    cutSmoothing: cutSmoothing_px,
-            //    cuttingMargin_mm: cuttingMargin_mm,
-            //    minStickerSizes_smm: minStickerSizes_smm,
-            //    width: 130,
-            //    height: 190,
-            //    thickness: 5,
-            //    hasHole: false,
-            //    textHeight: 30,
-            //    upperRatio: 0.2F,
-            //    marginFig: 4,
-            //    marginAcc: 2,
-            //    paddingCard: 4,
-            //    cardFillet: 3,
-            //    title: title,
-            //    subtitle: subtitle,
-            //    layoutOnly: false,
-            //    renderResx: 300,
-            //    renderResy: 300,
-            //    dontCreateBoundaries: true),
+            CreateAll(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                jobID: jobID,
+                dpi: dpi,
+                cutSmoothing: cutSmoothing_px,
+                cuttingMargin_mm: cuttingMargin_mm,
+                minStickerSizes_smm: minStickerSizes_smm,
+                width: 130,
+                height: 190,
+                thickness: 5,
+                hasHole: false,
+                textHeight: 30,
+                upperRatio: 0.2F,
+                marginFig: 4,
+                marginAcc: 2,
+                paddingCard: 4,
+                cardFillet: 3,
+                title: title,
+                subtitle: subtitle,
+                layoutOnly: false,
+                renderResx: isDebug ? resXyInDebug: 2000,
+                renderResy: isDebug ? resXyInDebug: 2000,
+                dontCreateBoundaries: true),
 
             };
 
@@ -214,15 +223,15 @@ class Program
                 cardHeight: 190 * 0.3f,
                 borderSize: 15   // Scaled down for keychain
             );
-            //await CreateAllSeparateMarkers(
-            //    nameSeed: "card",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    dpi: dpi,
-            //    cardWidth: 130,  // Use your actual card width
-            //    cardHeight: 190, // Use your actual card height
-            //    borderSize: 50   // Tune this value based on your render
-            //);
+            await CreateAllSeparateMarkers(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                dpi: dpi,
+                cardWidth: 130,  // Use your actual card width
+                cardHeight: 190, // Use your actual card height
+                borderSize: 50   // Tune this value based on your render
+            );
 
             return 0;
         }
@@ -235,6 +244,8 @@ class Program
     }
     static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries)
     {
+        if (isDebug && !nameSeed.Contains(makeArtifactInDebug))
+        { Console.WriteLine("Skipping " + nameSeed + " in  debug"); return; }
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
         BlenderExe: @"blender",
@@ -247,8 +258,8 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        DontRunBlenderForRender: true,
-        DontRunBlenderForJigs: true,
+        DontRunBlenderForRender: dontRunBlender2PyInDebug && isDebug,
+        DontRunBlenderForJigs: dontRunJigsInDebug && isDebug,
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
         HoleMargin: 5,
@@ -263,7 +274,7 @@ class Program
         renderResx: renderResx,
         renderResy: renderResy,
         JigsRequested: "+Z,-Z,+X,-X,+Y,-Y",
-        OverlapX: 3.0,
+        OverlapX: 10.0,
         OverlapY: 5.0,
         OverlapZ: 5.0,
         InflationMargin: 0.4,
@@ -463,6 +474,8 @@ class Program
     static async Task CreateAllSeparateMarkers(string nameSeed, string inDir, string outDir, int dpi,
     float cardWidth, float cardHeight, int borderSize = 50)
     {
+        if (isDebug && !nameSeed.Contains(makeArtifactInDebug))
+        { Console.WriteLine("Skipping " + nameSeed + " markers in  debug"); return; }
         Console.WriteLine($"Processing separate markers for: {nameSeed}");
 
         // Paths for the Blender render

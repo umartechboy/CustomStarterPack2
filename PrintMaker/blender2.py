@@ -1818,6 +1818,8 @@ def main():
                 cam = bpy.data.objects.new("_TMP_SceneCam", cam_data)
                 bpy.context.scene.collection.objects.link(cam)
             cam.data.type = 'ORTHO'
+            cam.data.clip_end = 10000.0
+            cam.data.clip_start = 0.1
 
             sc = bpy.context.scene
             sc.camera = cam
