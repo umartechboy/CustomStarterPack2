@@ -147,32 +147,32 @@ class Program
             // In your Main method, add this after the existing tasks:
             var tasks = new Task[] {
 
-            CreateAll(
-                nameSeed: "keychain",
-                inDir: inDir,
-                outDir: outDir,
-                jobID: jobID,
-                dpi: dpi,
-                cutSmoothing: cutSmoothing_px,
-                cuttingMargin_mm: cuttingMargin_mm * 0.3F,
-                minStickerSizes_smm: minStickerSizes_smm * 0.3F,
-                width: 130 * 0.3F,
-                height: 190 * 0.3F,
-                thickness: 2,
-                hasHole: true,
-                textHeight: 7,
-                upperRatio: 0.15F,
-                marginFig: 2,
-                marginAcc: 1,
-                paddingCard: 1.5F,
-                cardFillet: 1,
-                title: title,
-                subtitle: subtitle,
-                layoutOnly: false,
-                renderResx: 2000,
-                renderResy: 2000,
-                dontCreateBoundaries: true
-                ),
+            //CreateAll(
+            //    nameSeed: "keychain",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    jobID: jobID,
+            //    dpi: dpi,
+            //    cutSmoothing: cutSmoothing_px,
+            //    cuttingMargin_mm: cuttingMargin_mm * 0.3F,
+            //    minStickerSizes_smm: minStickerSizes_smm * 0.3F,
+            //    width: 130 * 0.3F,
+            //    height: 190 * 0.3F,
+            //    thickness: 2,
+            //    hasHole: true,
+            //    textHeight: 7,
+            //    upperRatio: 0.15F,
+            //    marginFig: 2,
+            //    marginAcc: 1,
+            //    paddingCard: 1.5F,
+            //    cardFillet: 1,
+            //    title: title,
+            //    subtitle: subtitle,
+            //    layoutOnly: false,
+            //    renderResx: 2000,
+            //    renderResy: 2000,
+            //    dontCreateBoundaries: true
+            //    ),
 
             CreateAll(
                 nameSeed: "card",
@@ -196,13 +196,22 @@ class Program
                 title: title,
                 subtitle: subtitle,
                 layoutOnly: false,
-                renderResx: 3000,
-                renderResy: 3000,
+                renderResx: 300,
+                renderResy: 300,
                 dontCreateBoundaries: true),
 
             };
 
             Task.WaitAll(tasks);
+            //await CreateAllSeparateMarkers(
+            //    nameSeed: "keychain",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    dpi: dpi,
+            //    cardWidth: 130 * 0.3f,
+            //    cardHeight: 190 * 0.3f,
+            //    borderSize: 15   // Scaled down for keychain
+            //);
             await CreateAllSeparateMarkers(
                 nameSeed: "card",
                 inDir: inDir,
@@ -213,15 +222,6 @@ class Program
                 borderSize: 50   // Tune this value based on your render
             );
 
-            await CreateAllSeparateMarkers(
-                nameSeed: "keychain",
-                inDir: inDir,
-                outDir: outDir,
-                dpi: dpi,
-                cardWidth: 130 * 0.3f,
-                cardHeight: 190 * 0.3f,
-                borderSize: 15   // Scaled down for keychain
-            );
             return 0;
         }
 

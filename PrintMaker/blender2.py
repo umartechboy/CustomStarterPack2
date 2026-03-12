@@ -1406,6 +1406,9 @@ def render_scene_ortho(output_path, res_x=1920, res_y=1080):
             # Skip the card if found
             if card_obj and o == card_obj:
                 continue
+            # Respect already hidden objects (like the figure if hidden by user)
+            if o.hide_render:
+                continue
             render_objs.append(o)
     
     # Add markers to render objects
@@ -1770,11 +1773,18 @@ def main():
     
     print(f"Rendering scene with texture")    
     render_path = os.path.join(args.middir, args.model_name_seed + f"_scene_render.png")
+    
+    if fig:
+        fig.hide_render = True
+        
     render_scene_ortho(
         output_path=render_path,
         res_x=args.render_resx,
         res_y=args.render_resy
     )
+    
+    if fig:
+        fig.hide_render = False
 
 #def someMore():
     group_png = os.path.join(args.middir, f"TextGroup.png")
@@ -1830,7 +1840,7 @@ def main():
             
             for d_name in jig_dirs:
                 import mathutils
-                cam_dist = 50.0
+                cam_dist = 1000.0
                 
                 if d_name == '+Z': # Actually Y axis in Blender
                     cam_pos = center + mathutils.Vector((0, cam_dist, 0))
@@ -1863,6 +1873,9 @@ def main():
                     import math
                     for light in all_objs:
                         if light.type == 'LIGHT':
+                            # Move lights to the other side of the scene center
+                            light.location.z *= -1.0
+                            # Flip rotation to point back at the center
                             light.rotation_euler.y += math.pi
 
                 elif d_name == '+X':
@@ -1899,11 +1912,12 @@ def main():
                 print(f"Jig rendering -> {jig_render_path}")
                 bpy.ops.render.render(write_still=True)
                 
-                # Revert Light rotation if applied
+                # Revert Light rotation and location if applied for -Y
                 if d_name == '-Y':
                     import math
                     for light in all_objs:
                         if light.type == 'LIGHT':
+                            light.location.z *= -1.0
                             light.rotation_euler.y -= math.pi
             
             # restore
