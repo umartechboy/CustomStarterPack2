@@ -33,11 +33,12 @@ def generate_jig_in_place(
     master_min, 
     master_max, 
     overlap, 
+    bottom_thickness=1.0, 
     inflation=0.4, 
     target_tris=50000, 
     direction='+Z'
 ):
-    print(f"\n[FUNC] Generating absolute {direction} Jig...")
+    print(f"\n[FUNC] Generating low-profile {direction} Jig...")
     
     # 1. Duplicate working model
     working_model = raw_model.copy()
@@ -51,52 +52,48 @@ def generate_jig_in_place(
     mod_min = (min(b.x for b in bbox), min(b.y for b in bbox), min(b.z for b in bbox))
     mod_max = (max(b.x for b in bbox), max(b.y for b in bbox), max(b.z for b in bbox))
 
-    # 3. SPATIAL MAPPING LOGIC
-    # Based on the requested sweep direction, we calculate:
-    # - The spatial bounds of the Jig Box
-    # - The spatial bounds of the massive Cutter that chops off the unneeded model parts
-    # - The vector the model sweeps in to punch the cavity
-    clearance = 5.0 # Keep 5mm of model past the overlap just to ensure clean cuts
-    inf = 1000.0    # Massive coordinate for cutters
+    # 3. SPATIAL MAPPING LOGIC (Updated for Low-Profile Thickness)
+    clearance = 5.0 
+    inf = 1000.0    
     
-    if direction == '+Z': # Model escapes Upwards -> Jig is on the Bottom
-        jig_min = (master_min[0], master_min[1], master_min[2])
+    if direction == '+Z': # Jig on Bottom
+        jig_min = (master_min[0], master_min[1], mod_min[2] - bottom_thickness)
         jig_max = (master_max[0], master_max[1], mod_min[2] + overlap)
         cut_min = (-inf, -inf, mod_min[2] + overlap + clearance)
         cut_max = (inf, inf, inf)
         sweep_vec = mathutils.Vector((0, 0, 1))
         
-    elif direction == '-Z': # Model escapes Downwards -> Jig is on the Top
+    elif direction == '-Z': # Jig on Top
         jig_min = (master_min[0], master_min[1], mod_max[2] - overlap)
-        jig_max = (master_max[0], master_max[1], master_max[2])
+        jig_max = (master_max[0], master_max[1], mod_max[2] + bottom_thickness)
         cut_min = (-inf, -inf, -inf)
         cut_max = (inf, inf, mod_max[2] - overlap - clearance)
         sweep_vec = mathutils.Vector((0, 0, -1))
         
-    elif direction == '+X': # Model escapes Right -> Jig is on the Left
-        jig_min = (master_min[0], master_min[1], master_min[2])
+    elif direction == '+X': # Jig on Left
+        jig_min = (mod_min[0] - bottom_thickness, master_min[1], master_min[2])
         jig_max = (mod_min[0] + overlap, master_max[1], master_max[2])
         cut_min = (mod_min[0] + overlap + clearance, -inf, -inf)
         cut_max = (inf, inf, inf)
         sweep_vec = mathutils.Vector((1, 0, 0))
         
-    elif direction == '-X': # Model escapes Left -> Jig is on the Right
+    elif direction == '-X': # Jig on Right
         jig_min = (mod_max[0] - overlap, master_min[1], master_min[2])
-        jig_max = (master_max[0], master_max[1], master_max[2])
+        jig_max = (mod_max[0] + bottom_thickness, master_max[1], master_max[2])
         cut_min = (-inf, -inf, -inf)
         cut_max = (mod_max[0] - overlap - clearance, inf, inf)
         sweep_vec = mathutils.Vector((-1, 0, 0))
         
-    elif direction == '+Y': # Model escapes Back -> Jig is on the Front
-        jig_min = (master_min[0], master_min[1], master_min[2])
+    elif direction == '+Y': # Jig on Front
+        jig_min = (master_min[0], mod_min[1] - bottom_thickness, master_min[2])
         jig_max = (master_max[0], mod_min[1] + overlap, master_max[2])
         cut_min = (-inf, mod_min[1] + overlap + clearance, -inf)
         cut_max = (inf, inf, inf)
         sweep_vec = mathutils.Vector((0, 1, 0))
         
-    elif direction == '-Y': # Model escapes Front -> Jig is on the Back
+    elif direction == '-Y': # Jig on Back
         jig_min = (master_min[0], mod_max[1] - overlap, master_min[2])
-        jig_max = (master_max[0], master_max[1], master_max[2])
+        jig_max = (master_max[0], mod_max[1] + bottom_thickness, master_max[2])
         cut_min = (-inf, -inf, -inf)
         cut_max = (inf, mod_max[1] - overlap - clearance, inf)
         sweep_vec = mathutils.Vector((0, -1, 0))
@@ -133,7 +130,6 @@ def generate_jig_in_place(
     final_jig = create_box(f"Jig_{direction}", jig_min, jig_max)
 
     # 7. Sweep the Master Cutter
-    # Must clear the overlap + a 2mm safety margin
     move_distance = overlap + 2.0 
     step_size = 0.5
     steps = int(math.ceil(move_distance / step_size))
@@ -145,7 +141,6 @@ def generate_jig_in_place(
         dup.data = working_model.data.copy()
         bpy.context.collection.objects.link(dup)
         
-        # Translate purely along the designated vector
         translation = sweep_vec * (i * step_size)
         dup.location.x += translation.x
         dup.location.y += translation.y
@@ -173,7 +168,7 @@ def generate_jig_in_place(
     final_cut.double_threshold = 0.0001 
     bpy.ops.object.modifier_apply(modifier=final_cut.name)
 
-    # 9. Cleanup Temporary Objects
+    # 9. Cleanup
     bpy.data.objects.remove(working_model, do_unlink=True)
     bpy.data.objects.remove(master_cutter, do_unlink=True)
 
@@ -214,14 +209,15 @@ if __name__ == "__main__":
     raw_model.location = (-cx, -cy, -cz)
     bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
 
-    # 4. Define Absolute Master Box (e.g., a 150x150x150mm block)
-    MASTER_X, MASTER_Y, MASTER_Z = 80, 50, 110
+    # 4. Process Control Variables
+    MASTER_X, MASTER_Y, MASTER_Z = 80.0, 50.0, 110.0
     master_min = (-MASTER_X/2, -MASTER_Y/2, -MASTER_Z/2)
     master_max = (MASTER_X/2, MASTER_Y/2, MASTER_Z/2)
 
-    OVERLAP = 5.0 # The uniform overlap for every side
+    OVERLAP = 5.0 
+    BOTTOM_THICKNESS = 1.0 # The fixed backing thickness for the UV print bed
 
-    # 5. Generate all 6 absolute jigsaw pieces!
+    # 5. Generate all 6 low-profile jigs
     directions = ['+Z', '-Z', '+X', '-X', '+Y', '-Y']
     for d in directions:
         generate_jig_in_place(
@@ -229,10 +225,11 @@ if __name__ == "__main__":
             master_min=master_min,
             master_max=master_max,
             overlap=OVERLAP,
+            bottom_thickness=BOTTOM_THICKNESS,
             direction=d
         )
 
     # 6. Save
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUTPUT_PATH)
-    print(f"\n[SUCCESS] 6-Sided Absolute Packing Generation Complete!")
+    print(f"\n[SUCCESS] Low-Profile Production Jig Generation Complete!")
