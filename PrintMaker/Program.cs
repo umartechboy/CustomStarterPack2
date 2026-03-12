@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -169,49 +169,49 @@ class Program
                 title: title,
                 subtitle: subtitle,
                 layoutOnly: false,
-                renderResx: 300,
-                renderResy: 300,
+                renderResx: 2000,
+                renderResy: 2000,
                 dontCreateBoundaries: true
                 ),
 
-            //CreateAll(
-            //    nameSeed: "card",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    jobID: jobID,
-            //    dpi: dpi,
-            //    cutSmoothing: cutSmoothing_px,
-            //    cuttingMargin_mm: cuttingMargin_mm,
-            //    minStickerSizes_smm: minStickerSizes_smm,
-            //    width: 130,
-            //    height: 190,
-            //    thickness: 5,
-            //    hasHole: false,
-            //    textHeight: 30,
-            //    upperRatio: 0.2F,
-            //    marginFig: 4,
-            //    marginAcc: 2,
-            //    paddingCard: 4,
-            //    cardFillet: 3,
-            //    title: title,
-            //    subtitle: subtitle,
-            //    layoutOnly: false,
-            //    renderResx: 3000,
-            //    renderResy: 3000,
-            //    dontCreateBoundaries: true),
+            CreateAll(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                jobID: jobID,
+                dpi: dpi,
+                cutSmoothing: cutSmoothing_px,
+                cuttingMargin_mm: cuttingMargin_mm,
+                minStickerSizes_smm: minStickerSizes_smm,
+                width: 130,
+                height: 190,
+                thickness: 5,
+                hasHole: false,
+                textHeight: 30,
+                upperRatio: 0.2F,
+                marginFig: 4,
+                marginAcc: 2,
+                paddingCard: 4,
+                cardFillet: 3,
+                title: title,
+                subtitle: subtitle,
+                layoutOnly: false,
+                renderResx: 3000,
+                renderResy: 3000,
+                dontCreateBoundaries: true),
 
             };
 
             Task.WaitAll(tasks);
-            //await CreateAllSeparateMarkers(
-            //    nameSeed: "card",
-            //    inDir: inDir,
-            //    outDir: outDir,
-            //    dpi: dpi,
-            //    cardWidth: 130,  // Use your actual card width
-            //    cardHeight: 190, // Use your actual card height
-            //    borderSize: 50   // Tune this value based on your render
-            //);
+            await CreateAllSeparateMarkers(
+                nameSeed: "card",
+                inDir: inDir,
+                outDir: outDir,
+                dpi: dpi,
+                cardWidth: 130,  // Use your actual card width
+                cardHeight: 190, // Use your actual card height
+                borderSize: 50   // Tune this value based on your render
+            );
 
             await CreateAllSeparateMarkers(
                 nameSeed: "keychain",
@@ -245,8 +245,8 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        DontRunBlenderForRender: true,
-        DontRunBlenderForJigs: true,
+        DontRunBlenderForRender: false,
+        DontRunBlenderForJigs: false,
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
         HoleMargin: 5,
@@ -268,6 +268,109 @@ class Program
         GridHeight: 50.0
     )
 );
+        string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
+        var figureActual = result.Meta.FigureSlotBounds?.FigureActual;
+        var slotSize = result.Meta.FigureSlotBounds?.SlotSize;
+
+        if (figureActual != null && slotSize != null && !layoutOnly)
+        {
+            double figW = figureActual.Size.W;
+            double figH = figureActual.Size.H;
+            double figD = figureActual.Size.D;
+            double margin = 0.1; // Blender orthogonal camera margin
+
+            // Jigs Canvas Sizes matching make_jig.py MASTER constraints:
+            // MASTER_X = figH, MASTER_Y = figW, MASTER_Z = 50.0
+
+            double slotW = slotSize.W;
+            double slotH = slotSize.H;
+
+            Console.WriteLine("Slot bounds: {0}x{1}", slotW, slotH);
+            
+            double ratio = 50.0 / figH;
+
+            foreach (var side in jigSides)
+            {
+                string jigPngPath = Path.Combine(inDir, $"{nameSeed}_jig_render_{side}.png");
+                if (!File.Exists(jigPngPath)) continue;
+
+                double ortho_w = 0, ortho_h = 0;
+                double canvasW_mm = 0, canvasH_mm = 0;
+                bool rotate90 = false;
+
+                if (side == "+Z" || side == "-Z") 
+                { 
+                    ortho_w = figW; 
+                    ortho_h = figD; 
+                    canvasW_mm = slotH; 
+                    canvasH_mm = slotW; 
+                }
+                else if (side == "+Y" || side == "-Y") 
+                { 
+                    ortho_w = figW; 
+                    ortho_h = figH; 
+                    canvasW_mm = slotH; 
+                    canvasH_mm = 50.0; 
+                }
+                else if (side == "+X" || side == "-X") 
+                { 
+                    ortho_w = figH; 
+                    ortho_h = figD; 
+                    canvasW_mm = slotW; 
+                    canvasH_mm = 50.0; 
+                    rotate90 = true;
+                }
+
+                double scene_aspect = ortho_h > 0 ? (ortho_w / ortho_h) : 1.0;
+                double render_aspect = renderResx / (double)renderResy;
+                double ortho_scale;
+                
+                if (scene_aspect > render_aspect) {
+                    ortho_scale = ortho_w * (1.0 + margin * 2.0);
+                } else {
+                    double needed_width = ortho_h * render_aspect;
+                    ortho_scale = Math.Max(needed_width, ortho_h) * (1.0 + margin * 2.0);
+                }
+                
+                double ortho_scale_y = ortho_scale / render_aspect;
+
+                double renderW_mm = ortho_scale * ratio;
+                double renderH_mm = ortho_scale_y * ratio;
+
+                using var renderedJig = await Image.LoadAsync<Rgba32>(jigPngPath);
+                
+                if (rotate90) {
+                    renderedJig.Mutate(x => x.Rotate(270));
+                    double temp = renderW_mm;
+                    renderW_mm = renderH_mm;
+                    renderH_mm = temp;
+                }
+
+                int targetCanvasPxW = (int)Math.Round(canvasW_mm * dpi / 25.4);
+                int targetCanvasPxH = (int)Math.Round(canvasH_mm * dpi / 25.4);
+                
+                int resizedRenderPxW = (int)Math.Round(renderW_mm * dpi / 25.4);
+                int resizedRenderPxH = (int)Math.Round(renderH_mm * dpi / 25.4);
+
+                renderedJig.Mutate(x => x.Resize(new ResizeOptions {
+                    Size = new SixLabors.ImageSharp.Size(resizedRenderPxW, resizedRenderPxH),
+                    Mode = ResizeMode.Stretch,
+                    Sampler = KnownResamplers.Bicubic
+                }));
+
+                var composedJigImage = new Image<Rgba32>(targetCanvasPxW, targetCanvasPxH);
+                int posX = (targetCanvasPxW - resizedRenderPxW) / 2;
+                int posY = (targetCanvasPxH - resizedRenderPxH) / 2;
+                
+                composedJigImage.Mutate(ctx => ctx.DrawImage(renderedJig, new Point(posX, posY), 1f));
+
+                string jigNameSeed = $"{nameSeed}_jig_{side}";
+                GeneratePrintableAssets(composedJigImage, jigNameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, 0f, layoutOnly);
+                
+                composedJigImage.Dispose();
+            }
+        }
+
         if (dontCreateBoundaries)
             return;
         Console.WriteLine("Composing priting image");
@@ -279,7 +382,16 @@ class Program
             layoutOnly: layoutOnly
         );
 
-        Console.Write("Computing cutting path");
+        GeneratePrintableAssets(composedImage, nameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, cardFillet, layoutOnly);
+        
+        Console.WriteLine("All Done. Exiting...");
+        // OR to distinguish holes:
+        // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);
+    }
+
+    static void GeneratePrintableAssets(Image<Rgba32> composedImage, string nameSeed, string outDir, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float cardFillet, bool layoutOnly)
+    {
+        Console.Write($"Computing cutting path for {nameSeed}\n");
         var boundaries = new List<BoundaryInfo>();
         if (!layoutOnly)
             boundaries = BoundaryDetector.DetectBoundaries(composedImage.Clone(), alphaThreshold: 1).FindAll(info => info.BBox.Width * info.BBox.Height / (float)dpi / dpi * 25.4 * 25.4 > minStickerSizes_smm);
@@ -295,9 +407,7 @@ class Program
             //BoundaryDetector.PaintBoundaryAA(composedImage, infos[i], new Rgba32(255, 0, 0, 255), thickness: 2f);
             Console.Write(".");
         }
-        //var dInd = boundaries.FindIndex(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels));
-        //debugPath(composedImage, boundaries.Find(b => b.AreaPixels == boundaries.Max(b2 => b2.AreaPixels)).BoundaryPixels, "F:\\CustomStarterPack\\CustomStarterPack\\ImgDebugger\\bin\\Debug\\net8.0-windows");
-        // Append the image-sized rounded rectangle (e.g., 3 mm radius)
+        
         float mm = cardFillet;
         float radiusPx = (float)(mm * dpi / 25.4);
         var frame = BoundaryDetector.MakeRoundedRectBoundary(
@@ -315,7 +425,6 @@ class Program
         if (cuttingMargin_mm > 0 && !layoutOnly)
         {
             Console.WriteLine("Generating content for cutting margin");
-            // Lets create bleed by picking up some inwards pixels.
             int rErrodPx = Math.Max(1, (int)Math.Round(cuttingMargin_mm / 2 * dpi / 25.4));
             int rPx = Math.Max(1, (int)Math.Round(cuttingMargin_mm * dpi / 25.4));
             var errodedComposedImage = ErodeByAlpha(composedImage, rErrodPx, 128);
@@ -335,6 +444,8 @@ class Program
                 .DrawImage(bleed, new Point(0, 0), 1f)
                 .DrawImage(featheredComposedImage, new Point(0, 0), 1f)
             );
+            errodedComposedImage.Dispose();
+            featheredComposedImage.Dispose();
         }
         Console.WriteLine("Saving data");
         
@@ -363,10 +474,8 @@ class Program
 
             Console.WriteLine("Saved cutting DXF at: " + Path.Combine(outDir, nameSeed + "_cutting.dxf"));
         }
-
-        Console.WriteLine("All Done. Exiting...");
-        // OR to distinguish holes:
-        // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);
+        refImage.Dispose();
+        if (finalImage != composedImage) finalImage.Dispose();
     }
     static async Task CreateAllSeparateMarkers(string nameSeed, string inDir, string outDir, int dpi,
     float cardWidth, float cardHeight, int borderSize = 50)
