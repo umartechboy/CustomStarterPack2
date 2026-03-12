@@ -38,7 +38,8 @@ public sealed class BlenderLayoutRunner
         string Font = "",              // --font
         double TextExtr = 0.8,         // --text_extr
         double TextLift = -0.2,         // --text_lift
-        bool DontRunBlender = false,    // Don't actually run the blender, only for debugging// add to BlenderLayoutOptions(...)
+        bool DontRunBlenderForRender = false,    // Don't actually run the blender, only for debugging// add to BlenderLayoutOptions(...)
+        bool DontRunBlenderForJigs = false,    // Don't actually run the blender, only for debugging// add to BlenderLayoutOptions(...)
         bool HasHole = false,             // --has_hole
         double HoleD = 3.0,               // --hole_d (mm)
         double HoleMargin = 4.0,          // --hole_margin (mm)
@@ -166,7 +167,7 @@ public sealed class BlenderLayoutRunner
         {
             if (e.Data is not null) Console.Error.WriteLine(e.Data);
         };
-        if (!opt.DontRunBlender)
+        if (!opt.DontRunBlenderForRender)
         {
             if (!proc.Start())
                 throw new InvalidOperationException("Failed to start Blender process.");
@@ -241,18 +242,21 @@ public sealed class BlenderLayoutRunner
                 {
                     if (e.Data is not null) Console.Error.WriteLine($"[JIG-ERR] {e.Data}");
                 };
-                if (!jigProc.Start())
-                    throw new InvalidOperationException("Failed to start python process for jig generation.");
 
-                jigProc.BeginOutputReadLine();
-                jigProc.BeginErrorReadLine();
-
-                await jigProc.WaitForExitAsync(ct).ConfigureAwait(false);
-
-                if (jigProc.ExitCode != 0)
+                if (!opt.DontRunBlenderForJigs)
                 {
-                    var msg = $"Jig generation exited with code {jigProc.ExitCode}.";
-                    throw new ApplicationException(msg);
+                    if (!jigProc.Start())
+                        throw new InvalidOperationException("Failed to start python process for jig generation.");
+
+                    jigProc.BeginOutputReadLine();
+                    jigProc.BeginErrorReadLine();
+
+                    await jigProc.WaitForExitAsync(ct).ConfigureAwait(false);
+                    if (jigProc.ExitCode != 0)
+                    {
+                        var msg = $"Jig generation exited with code {jigProc.ExitCode}.";
+                        throw new ApplicationException(msg);
+                    }
                 }
             }
         }

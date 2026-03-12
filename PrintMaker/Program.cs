@@ -203,15 +203,15 @@ class Program
             };
 
             Task.WaitAll(tasks);
-            await CreateAllSeparateMarkers(
-                nameSeed: "card",
-                inDir: inDir,
-                outDir: outDir,
-                dpi: dpi,
-                cardWidth: 130,  // Use your actual card width
-                cardHeight: 190, // Use your actual card height
-                borderSize: 50   // Tune this value based on your render
-            );
+            //await CreateAllSeparateMarkers(
+            //    nameSeed: "card",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    dpi: dpi,
+            //    cardWidth: 130,  // Use your actual card width
+            //    cardHeight: 190, // Use your actual card height
+            //    borderSize: 50   // Tune this value based on your render
+            //);
 
             await CreateAllSeparateMarkers(
                 nameSeed: "keychain",
@@ -245,7 +245,8 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        DontRunBlender: false,
+        DontRunBlenderForRender: true,
+        DontRunBlenderForJigs: true,
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
         HoleMargin: 5,

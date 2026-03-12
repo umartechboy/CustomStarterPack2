@@ -593,20 +593,11 @@ def sink_further_and_cut_protrusion(obj, card_obj, fraction=1.0/5.0):
         print(f"Cutter dimensions: {cutter_width:.2f}x{cutter_length:.2f}x{cutter_thickness:.2f}")
         print(f"Object bounds: X[{obj_minx:.2f}, {obj_maxx:.2f}], Y[{obj_miny:.2f}, {obj_maxy:.2f}]")
         
-        # Apply boolean difference to cut protruding part
-        bool_mod = obj.modifiers.new(name="CutProtrusion", type='BOOLEAN')
-        bool_mod.operation = 'DIFFERENCE'
-        bool_mod.solver = 'EXACT'
-        bool_mod.object = cutter
-        
-        # Apply the modifier
-        select_only(obj)
-        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-        
+        # We no longer apply boolean difference to cut protruding part
         # Clean up cutter
         bpy.data.objects.remove(cutter, do_unlink=True)
         
-        print(f"Cut away {protrusion_depth:.2f}mm of protruding part below card")
+        print(f"Skipped boolean cut - allowed {protrusion_depth:.2f}mm of protruding part below card")
     
     bpy.context.view_layer.update()
 
@@ -1868,6 +1859,11 @@ def main():
                     up = mathutils.Vector((0, 1, 0))
                     right = up.cross(fwd)
                     ortho_w, ortho_h = w, h
+                    
+                    import math
+                    for light in all_objs:
+                        if light.type == 'LIGHT':
+                            light.rotation_euler.y += math.pi
 
                 elif d_name == '+X':
                     cam_pos = center + mathutils.Vector((cam_dist, 0, 0))
@@ -1902,6 +1898,13 @@ def main():
                 sc.render.filepath = os.path.abspath(jig_render_path)
                 print(f"Jig rendering -> {jig_render_path}")
                 bpy.ops.render.render(write_still=True)
+                
+                # Revert Light rotation if applied
+                if d_name == '-Y':
+                    import math
+                    for light in all_objs:
+                        if light.type == 'LIGHT':
+                            light.rotation_euler.y -= math.pi
             
             # restore
             for o, hflag in prev_hide.items():

@@ -252,7 +252,7 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True)
     BLEND_OUTPUT_PATH = os.path.join(args.output_dir, f"{args.model_name_seed}_jigs.blend")
     
-    # 1. Cleanup
+    print("[INIT] Cleaning up scene...")
     bpy.ops.object.select_all(action='DESELECT')
     for obj in bpy.context.scene.objects:
         if obj.type == 'MESH': obj.select_set(True)
@@ -280,8 +280,9 @@ if __name__ == "__main__":
     raw_model.location = (args.slot_center[0] - cx, args.slot_center[1] - cy, args.slot_center[2] - cz)
     bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
 
+    print("[PROCESS] Calculating spatial constraints...")
     # 4. Process Control Variables
-    MASTER_X, MASTER_Y, MASTER_Z = args.slot_size[0], args.slot_size[1], args.grid_height
+    MASTER_X, MASTER_Y, MASTER_Z = args.slot_size[1], args.slot_size[0], args.grid_height
     master_min = (args.slot_center[0] - MASTER_X/2, args.slot_center[1] - MASTER_Y/2, args.slot_center[2] - MASTER_Z/2)
     master_max = (args.slot_center[0] + MASTER_X/2, args.slot_center[1] + MASTER_Y/2, args.slot_center[2] + MASTER_Z/2)
 
@@ -294,7 +295,9 @@ if __name__ == "__main__":
     else:
         directions = ['+Z', '-Z', '+X', '-X', '+Y', '-Y']
 
+    print(f"[PROCESS] Creating {len(directions)} jigs: {directions}")
     for d in directions:
+        print(f"   -> Starting generation for {d}...")
         final_jig = generate_jig_in_place(
             raw_model=raw_model,
             master_min=master_min,
@@ -314,9 +317,11 @@ if __name__ == "__main__":
         try:
             bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True)
         except Exception as e:
-            print(f"Standard STL export failed: {e}. Falling back to binary writer...")
+            print(f"      [WARN] Standard STL export failed: {e}. Falling back to binary writer...")
             _write_binary_stl_all(stl_path, final_jig)
+        print(f"   -> Completed generation for {d}")
 
+    print("[PROCESS] Exporting RAW Base Figure...")
     # 6. Export the RAW Base Figure
     bpy.ops.object.select_all(action='DESELECT')
     raw_model.select_set(True)
@@ -329,7 +334,10 @@ if __name__ == "__main__":
         _write_binary_stl_all(figure_stl_path, raw_model)
     print(f"[OK] Base Figure STL Exported: {figure_stl_path}")
     
+    print("[PROCESS] Saving Combined Blend File...")
     # 7. Save Combined Blend
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUTPUT_PATH)
-    print(f"\n[SUCCESS] Low-Profile Production Jig Generation Complete!")
+    print(f"[SUCCESS] Low-Profile Production Jig Generation Complete! Exiting.")
+    import sys
+    sys.exit(0)
