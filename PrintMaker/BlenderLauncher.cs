@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -45,7 +45,13 @@ public sealed class BlenderLayoutRunner
         string HoleCorner = "top_right",  // --hole_corner: top_right|top_left|bottom_right|bottom_left
         string ModelNameSeed = "card",         // --model_name_seed
         int renderResx = 1000,
-        int renderResy = 1000
+        int renderResy = 1000,
+        string JigsRequested = "",        // --jigs_requested (+Z,-Z,+X,etc.)
+        double OverlapX = 3.0,
+        double OverlapY = 5.0,
+        double OverlapZ = 5.0,
+        double InflationMargin = 0.4,
+        double GridHeight = 50.0
     )
     {
         public int RenderResx { get; internal set; }
@@ -124,6 +130,16 @@ public sealed class BlenderLayoutRunner
         {
             args.Add("--model_name_seed");
             args.Add(Quote(opt.ModelNameSeed));
+        }
+
+        if (!string.IsNullOrWhiteSpace(opt.JigsRequested))
+        {
+            args.Add("--jigs_requested"); args.Add(Quote(opt.JigsRequested));
+            args.Add("--overlap_x"); args.Add(opt.OverlapX.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add("--overlap_y"); args.Add(opt.OverlapY.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add("--overlap_z"); args.Add(opt.OverlapZ.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add("--inflation_margin"); args.Add(opt.InflationMargin.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add("--grid_height"); args.Add(opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         var psi = new ProcessStartInfo

@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from blender_utils import *
 from blender_export import *
 from blender_render import *
+from make_jig import generate_jig_in_place
 # ----------------------------- CLI -----------------------------
 def parse_args():
     argv = sys.argv
@@ -58,6 +59,14 @@ def parse_args():
     # render with Texture
     p.add_argument("--render_resx", type=int, default=1920, help="Render resolution X")
     p.add_argument("--render_resy", type=int, default=1080, help="Render resolution Y")
+
+    # Jigs
+    p.add_argument("--jigs_requested", type=str, default="", help="Comma separated list of jigs +Z,-Z,+X etc.")
+    p.add_argument("--overlap_x", type=float, default=3.0)
+    p.add_argument("--overlap_y", type=float, default=5.0)
+    p.add_argument("--overlap_z", type=float, default=5.0)
+    p.add_argument("--inflation_margin", type=float, default=0.4)
+    p.add_argument("--grid_height", type=float, default=50.0)
 
     args = p.parse_args(argv)
     # Limit accessories to 3 as requested
@@ -181,6 +190,23 @@ def main():
         sink_further_and_cut_protrusion(fig, card)       # Second sinking + cut
         bpy.context.view_layer.update()
 
+        # Dynamic jig generation for the figure within its grid bounds
+        if args.jigs_requested:
+            master_min = (left_x_center - fig_slot_w/2.0, lower_y_center - fig_slot_h/2.0, 0.0)
+            master_max = (left_x_center + fig_slot_w/2.0, lower_y_center + fig_slot_h/2.0, args.grid_height)
+            jigs_to_generate = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
+            for d in jigs_to_generate:
+                overlap_val = args.overlap_z if 'Z' in d else (args.overlap_x if 'X' in d else args.overlap_y)
+                jig_obj = generate_jig_in_place(
+                    raw_model=fig,
+                    master_min=master_min,
+                    master_max=master_max,
+                    overlap=overlap_val,
+                    bottom_thickness=1.0, 
+                    inflation=args.inflation_margin,
+                    direction=d
+                )
+
     # Accessories
     acc_objs = []
     acc_count = min(3, len(args.acc))
@@ -281,7 +307,18 @@ def main():
     # diagnose_text_group_front(text_group, px=1600, margin=0.08)
     # render_text_group_front_png(text_group, group_png, px=1600, margin=0.08, color=(1,0,0,1))
 
-
+    # --- Optional: Export Jigs individually ---
+    # if args.jigs_requested:
+    #     jigs_to_export = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
+    #     for d in jigs_to_export:
+    #         jig_name = f"Jig_{d}"
+    #         if jig_name in bpy.data.objects:
+    #             bpy.ops.object.select_all(action='DESELECT')
+    #             jig_obj = bpy.data.objects[jig_name]
+    #             jig_obj.select_set(True)
+    #             bpy.context.view_layer.objects.active = jig_obj
+    #             jig_stl_path = os.path.join(args.outdir, f"{args.model_name_seed}_{jig_name}.stl")
+    #             bpy.ops.export_mesh.stl(filepath=jig_stl_path, use_selection=True)
 
     blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
     stl_path = os.path.join(args.outdir, args.model_name_seed + f"_model.stl")

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -258,7 +258,13 @@ class Program
         Title: title, 
         Subtitle: subtitle,
         renderResx: renderResx,
-        renderResy: renderResy
+        renderResy: renderResy,
+        JigsRequested: "+Z,-Z",
+        OverlapX: 3.0,
+        OverlapY: 5.0,
+        OverlapZ: 5.0,
+        InflationMargin: 0.4,
+        GridHeight: 50.0
     )
 );
         if (dontCreateBoundaries)
