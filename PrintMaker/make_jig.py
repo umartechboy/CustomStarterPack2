@@ -317,17 +317,19 @@ if __name__ == "__main__":
             print(f"Standard STL export failed: {e}. Falling back to binary writer...")
             _write_binary_stl_all(stl_path, final_jig)
 
-        # Export individual jig BLEND
-        blend_path_single = os.path.join(args.output_dir, f"{args.model_name_seed}_jig_{d}.blend")
-        # Save a copy of the current state (contains just this jig since others are generated progressively)
-        # Note: If you want *only* this jig, we temporarily delete the raw model, save, and undo.
-        try:
-            bpy.ops.wm.save_as_mainfile(filepath=blend_path_single, copy=True)
-            print(f"[OK] Individual Blend Exported: {blend_path_single}")
-        except Exception as e:
-            print(f"Failed to export individual blend: {e}")
-
-    # 6. Save
+    # 6. Export the RAW Base Figure
+    bpy.ops.object.select_all(action='DESELECT')
+    raw_model.select_set(True)
+    bpy.context.view_layer.objects.active = raw_model
+    figure_stl_path = os.path.join(args.output_dir, f"{args.model_name_seed}_figure.stl")
+    try:
+        bpy.ops.export_mesh.stl(filepath=figure_stl_path, use_selection=True)
+    except Exception as e:
+        print(f"Standard STL export for figure failed: {e}. Falling back to binary writer...")
+        _write_binary_stl_all(figure_stl_path, raw_model)
+    print(f"[OK] Base Figure STL Exported: {figure_stl_path}")
+    
+    # 7. Save Combined Blend
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUTPUT_PATH)
     print(f"\n[SUCCESS] Low-Profile Production Jig Generation Complete!")

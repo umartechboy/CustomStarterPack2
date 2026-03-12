@@ -994,6 +994,8 @@ def _collect_export_objects_with_temps():
     export_objs = []
     temps = []
     for o in bpy.data.objects:
+        if o.name.startswith("Figure") and getattr(o, "type", "") == "MESH":
+            continue
         if o.type == "MESH":
             export_objs.append(o)
         elif o.type in {"CURVE", "FONT", "SURFACE"}:
@@ -1080,7 +1082,12 @@ def _iter_world_tris_any(obj):
 
 def _write_binary_stl_all(path_stl: str):
     """Addon-free writer that includes Mesh/Text/Curves/Surface."""
-    objs = [o for o in bpy.data.objects if o.type in _GEOM_TYPES]
+    objs = []
+    for o in bpy.data.objects:
+        if o.name.startswith("Figure") and getattr(o, "type", "") == "MESH":
+            continue
+        if o.type in _GEOM_TYPES:
+            objs.append(o)
     if not objs:
         raise RuntimeError("No geometry objects to export (MESH/CURVE/FONT/SURFACE).")
 
@@ -1784,18 +1791,110 @@ def main():
     diagnose_text_group_front(text_group, px=1600, margin=0.08)
     render_text_group_front_png(text_group, group_png, px=1600, margin=0.08, color=(1,0,0,1))
 
-    # --- Optional: Export Jigs individually ---
+    # --- Export orthographic jigs if requested ---
     if args.jigs_requested:
-        jigs_to_export = [j.strip() for j in args.jigs_requested.split(',') if j.strip()]
-        for d in jigs_to_export:
-            jig_name = f"Jig_{d}"
-            if jig_name in bpy.data.objects:
-                bpy.ops.object.select_all(action='DESELECT')
-                jig_obj = bpy.data.objects[jig_name]
-                jig_obj.select_set(True)
-                bpy.context.view_layer.objects.active = jig_obj
-                jig_stl_path = os.path.join(args.outdir, f"{args.model_name_seed}_{jig_name}.stl")
-                bpy.ops.export_mesh.stl(filepath=jig_stl_path, use_selection=True)
+        jig_dirs = [d.strip() for d in args.jigs_requested.split(',') if d.strip()]
+        if fig and jig_dirs:
+            print(f"Rendering orthogonal jig views for {jig_dirs}")
+            all_objs = list(bpy.data.objects)
+            prev_hide = {o: o.hide_render for o in all_objs}
+            
+            # Hide everything
+            for o in all_objs: o.hide_render = True
+            
+            # Only unhide the figure and the light sources
+            fig.hide_render = False
+            for o in all_objs:
+                if o.type == 'LIGHT':
+                    o.hide_render = False
+
+            bpy.context.view_layer.update()
+            
+            # Use same camera
+            cam = bpy.data.objects.get("_TMP_SceneCam")
+            if not cam:
+                cam_data = bpy.data.cameras.new("_TMP_SceneCam")
+                cam = bpy.data.objects.new("_TMP_SceneCam", cam_data)
+                bpy.context.scene.collection.objects.link(cam)
+            cam.data.type = 'ORTHO'
+
+            sc = bpy.context.scene
+            sc.camera = cam
+            sc.render.engine = 'CYCLES'
+            sc.cycles.samples = 64
+            sc.cycles.use_denoising = True
+            sc.render.resolution_x = args.render_resx
+            sc.render.resolution_y = args.render_resy
+            sc.render.image_settings.file_format = 'PNG'
+            sc.render.image_settings.color_mode = 'RGBA'
+            sc.render.film_transparent = True
+            
+            # Setup scene bounds
+            mn, mx = world_aabb(fig)
+            center = (mn + mx) * 0.5
+            w = (mx.x - mn.x)
+            h = (mx.y - mn.y)
+            d = (mx.z - mn.z)
+            margin = 0.1
+            
+            for d_name in jig_dirs:
+                # Rotate Camera for specific view (+Z, -Z, +X, -X, +Y, -Y)
+                # target look rotation (camera pointing AT the model)
+                import mathutils
+                right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,1,0))
+                # look -Z by default
+                ortho_w, ortho_h = w, h
+                cam_center = center
+                
+                if d_name == '+Z': # From top, look -Z
+                    right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,1,0))
+                    cam_pos = center + mathutils.Vector((0, 0, 50))
+                    ortho_w, ortho_h = w, h
+                elif d_name == '-Z': # From bot, look +Z
+                    right, up = mathutils.Vector((-1,0,0)), mathutils.Vector((0,1,0))
+                    cam_pos = center + mathutils.Vector((0, 0, -50))
+                    ortho_w, ortho_h = w, h
+                elif d_name == '+Y': # From front, look -Y
+                    right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,0,1))
+                    cam_pos = center + mathutils.Vector((0, 50, 0))
+                    ortho_w, ortho_h = w, d
+                elif d_name == '-Y': # From back, look +Y
+                    right, up = mathutils.Vector((-1,0,0)), mathutils.Vector((0,0,1))
+                    cam_pos = center + mathutils.Vector((0, -50, 0))
+                    ortho_w, ortho_h = w, d
+                elif d_name == '+X': # From right, look -X
+                    right, up = mathutils.Vector((0,-1,0)), mathutils.Vector((0,0,1))
+                    cam_pos = center + mathutils.Vector((50, 0, 0))
+                    ortho_w, ortho_h = h, d
+                elif d_name == '-X': # From left, look +X
+                    right, up = mathutils.Vector((0,1,0)), mathutils.Vector((0,0,1))
+                    cam_pos = center + mathutils.Vector((-50, 0, 0))
+                    ortho_w, ortho_h = h, d
+                
+                fwd = up.cross(right).normalized()
+                cam.matrix_world = mathutils.Matrix((
+                    ( right.x, up.x, fwd.x, cam_pos.x ),
+                    ( right.y, up.y, fwd.y, cam_pos.y ),
+                    ( right.z, up.z, fwd.z, cam_pos.z ),
+                    (   0.0,    0.0,   0.0,    1.0    ),
+                ))
+            
+                scene_aspect = ortho_w / ortho_h if ortho_h > 0 else 1.0
+                render_aspect = args.render_resx / args.render_resy if args.render_resy > 0 else 1.0
+                if scene_aspect > render_aspect:
+                    cam.data.ortho_scale = ortho_w * (1.0 + margin * 2.0)
+                else:
+                    needed_width = ortho_h * render_aspect
+                    cam.data.ortho_scale = max(needed_width, ortho_h) * (1.0 + margin * 2.0)
+                
+                jig_render_path = os.path.join(args.middir, f"{args.model_name_seed}_jig_render_{d_name}.png")
+                sc.render.filepath = os.path.abspath(jig_render_path)
+                print(f"Jig rendering -> {jig_render_path}")
+                bpy.ops.render.render(write_still=True)
+            
+            # restore
+            for o, hflag in prev_hide.items():
+                o.hide_render = hflag
 
     blend_path = os.path.join(args.outdir, args.model_name_seed + f"_model.blend")
     stl_path = os.path.join(args.outdir, args.model_name_seed + f"_model.stl")
