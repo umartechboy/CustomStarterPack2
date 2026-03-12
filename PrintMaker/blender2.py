@@ -1838,40 +1838,51 @@ def main():
             margin = 0.1
             
             for d_name in jig_dirs:
-                # Rotate Camera for specific view (+Z, -Z, +X, -X, +Y, -Y)
-                # target look rotation (camera pointing AT the model)
                 import mathutils
-                right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,1,0))
-                # look -Z by default
-                ortho_w, ortho_h = w, h
-                cam_center = center
+                cam_dist = 50.0
                 
-                if d_name == '+Z': # From top, look -Z
-                    right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,1,0))
-                    cam_pos = center + mathutils.Vector((0, 0, 50))
-                    ortho_w, ortho_h = w, h
-                elif d_name == '-Z': # From bot, look +Z
-                    right, up = mathutils.Vector((-1,0,0)), mathutils.Vector((0,1,0))
-                    cam_pos = center + mathutils.Vector((0, 0, -50))
-                    ortho_w, ortho_h = w, h
-                elif d_name == '+Y': # From front, look -Y
-                    right, up = mathutils.Vector((1,0,0)), mathutils.Vector((0,0,1))
-                    cam_pos = center + mathutils.Vector((0, 50, 0))
+                if d_name == '+Z': # Actually Y axis in Blender
+                    cam_pos = center + mathutils.Vector((0, cam_dist, 0))
+                    fwd = mathutils.Vector((0, 1, 0))
+                    up = mathutils.Vector((0, 0, 1))
+                    right = up.cross(fwd)
                     ortho_w, ortho_h = w, d
-                elif d_name == '-Y': # From back, look +Y
-                    right, up = mathutils.Vector((-1,0,0)), mathutils.Vector((0,0,1))
-                    cam_pos = center + mathutils.Vector((0, -50, 0))
+                    
+                elif d_name == '-Z': # Actually -Y axis in Blender
+                    cam_pos = center + mathutils.Vector((0, -cam_dist, 0))
+                    fwd = mathutils.Vector((0, -1, 0))
+                    up = mathutils.Vector((0, 0, 1))
+                    right = up.cross(fwd)
                     ortho_w, ortho_h = w, d
-                elif d_name == '+X': # From right, look -X
-                    right, up = mathutils.Vector((0,-1,0)), mathutils.Vector((0,0,1))
-                    cam_pos = center + mathutils.Vector((50, 0, 0))
+
+                elif d_name == '+Y': # Actually Z axis in Blender
+                    cam_pos = center + mathutils.Vector((0, 0, cam_dist))
+                    fwd = mathutils.Vector((0, 0, 1))
+                    up = mathutils.Vector((0, 1, 0))
+                    right = up.cross(fwd)
+                    ortho_w, ortho_h = w, h
+
+                elif d_name == '-Y': # Actually -Z axis in Blender
+                    cam_pos = center + mathutils.Vector((0, 0, -cam_dist))
+                    fwd = mathutils.Vector((0, 0, -1))
+                    up = mathutils.Vector((0, 1, 0))
+                    right = up.cross(fwd)
+                    ortho_w, ortho_h = w, h
+
+                elif d_name == '+X':
+                    cam_pos = center + mathutils.Vector((cam_dist, 0, 0))
+                    fwd = mathutils.Vector((1, 0, 0))
+                    up = mathutils.Vector((0, 0, 1))
+                    right = up.cross(fwd)
                     ortho_w, ortho_h = h, d
-                elif d_name == '-X': # From left, look +X
-                    right, up = mathutils.Vector((0,1,0)), mathutils.Vector((0,0,1))
-                    cam_pos = center + mathutils.Vector((-50, 0, 0))
+
+                elif d_name == '-X':
+                    cam_pos = center + mathutils.Vector((-cam_dist, 0, 0))
+                    fwd = mathutils.Vector((-1, 0, 0))
+                    up = mathutils.Vector((0, 0, 1))
+                    right = up.cross(fwd)
                     ortho_w, ortho_h = h, d
                 
-                fwd = up.cross(right).normalized()
                 cam.matrix_world = mathutils.Matrix((
                     ( right.x, up.x, fwd.x, cam_pos.x ),
                     ( right.y, up.y, fwd.y, cam_pos.y ),

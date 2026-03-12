@@ -169,8 +169,8 @@ class Program
                 title: title,
                 subtitle: subtitle,
                 layoutOnly: false,
-                renderResx: 2000,
-                renderResy: 2000,
+                renderResx: 300,
+                renderResy: 300,
                 dontCreateBoundaries: true
                 ),
 
@@ -406,6 +406,7 @@ class Program
         string mainOutputPath = Path.Combine(outDir, $"{nameSeed}_main.png");
         SavePngWithDpi(mainImage, mainOutputPath, dpi);
         Console.WriteLine($"Saved main image (no border markers): {mainOutputPath}");
+
 
         // 2. Create markers only image (only border markers)
         var markersImage = KeepOnlyBorder(renderedImage, borderSize);
