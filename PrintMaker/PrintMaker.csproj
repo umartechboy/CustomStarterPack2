@@ -37,6 +37,9 @@
     <None Update="blender3.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="make_jig.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="run_starter_pack.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
