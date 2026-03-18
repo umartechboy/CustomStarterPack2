@@ -223,7 +223,7 @@ public sealed class BlenderLayoutRunner
 
                 var jigPsi = new ProcessStartInfo
                 {
-                    FileName = "python.exe",
+                    FileName = "python",
                     Arguments = string.Join(" ", jigArgs),
                     UseShellExecute = false,
                     RedirectStandardOutput = true,

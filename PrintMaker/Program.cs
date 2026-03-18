@@ -22,9 +22,9 @@ using System.Runtime.Intrinsics.Arm;
 
 class Program
 {
-    static bool dontRunBlender2PyInDebug = true;
-    static bool dontRunJigsInDebug = true;
-    static string makeArtifactInDebug = "null"; // "" for both, "null" for none, "card", "keychain"
+    static bool dontRunBlender2PyInDebug = false;
+    static bool dontRunJigsInDebug = false;
+    static string makeArtifactInDebug = "card"; // "" for both, "null" for none, "card", "keychain"
     static int resXyInDebug = 300;
     static bool isDebug = false;
     static async Task<int> Main(string[] args)
@@ -274,9 +274,9 @@ class Program
         renderResx: renderResx,
         renderResy: renderResy,
         JigsRequested: "+Z,-Z,+X,-X,+Y,-Y",
-        OverlapX: 10.0,
-        OverlapY: 5.0,
-        OverlapZ: 5.0,
+        OverlapX: 25.0,
+        OverlapY: 8.0,
+        OverlapZ: 25.0,
         InflationMargin: 0.4,
         GridHeight: 50.0
     )
