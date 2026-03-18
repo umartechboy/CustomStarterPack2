@@ -37,8 +37,8 @@ class Program
         {
             // ---- defaults ----
             //string jobID = "aa725d3c-6754-43ef-b296-041106fab2d2";             // REQUIRED (override with --job)
-            string jobID = "001";             // REQUIRED (override with --job)
-            string workingDir = "";           // --workdir
+            string jobID = "3ecf8918";             // REQUIRED (override with --job)
+            string workingDir = "/workspace/SimpleMe/PrintMaker";           // --workdir
             string title = "Starter Pack";
             string subtitle = "Everything You Need";
             int dpi = 600;                    // --dpi
@@ -53,7 +53,7 @@ class Program
 
             // ---- parse CLI (--key value OR --key=value), validate keys ----
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing" };
+    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle" };
 
             var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < args.Length; i++)
@@ -158,32 +158,32 @@ class Program
             // In your Main method, add this after the existing tasks:
             var tasks = new Task[] {
 
-            CreateAll(
-                nameSeed: "keychain",
-                inDir: inDir,
-                outDir: outDir,
-                jobID: jobID,
-                dpi: dpi,
-                cutSmoothing: cutSmoothing_px,
-                cuttingMargin_mm: cuttingMargin_mm * 0.3F,
-                minStickerSizes_smm: minStickerSizes_smm * 0.3F,
-                width: 130 * 0.3F,
-                height: 190 * 0.3F,
-                thickness: 2,
-                hasHole: true,
-                textHeight: 7,
-                upperRatio: 0.15F,
-                marginFig: 2,
-                marginAcc: 1,
-                paddingCard: 1.5F,
-                cardFillet: 1,
-                title: title,
-                subtitle: subtitle,
-                layoutOnly: false,
-                renderResx: 2000,
-                renderResy: 2000,
-                dontCreateBoundaries: true
-                ),
+            // CreateAll(
+            //     nameSeed: "keychain",
+            //     inDir: inDir,
+            //     outDir: outDir,
+            //     jobID: jobID,
+            //     dpi: dpi,
+            //     cutSmoothing: cutSmoothing_px,
+            //     cuttingMargin_mm: cuttingMargin_mm * 0.3F,
+            //     minStickerSizes_smm: minStickerSizes_smm * 0.3F,
+            //     width: 130 * 0.3F,
+            //     height: 190 * 0.3F,
+            //     thickness: 2,
+            //     hasHole: true,
+            //     textHeight: 7,
+            //     upperRatio: 0.15F,
+            //     marginFig: 2,
+            //     marginAcc: 1,
+            //     paddingCard: 1.5F,
+            //     cardFillet: 1,
+            //     title: title,
+            //     subtitle: subtitle,
+            //     layoutOnly: false,
+            //     renderResx: 2000,
+            //     renderResy: 2000,
+            //     dontCreateBoundaries: true
+            //     ),
 
             CreateAll(
                 nameSeed: "card",
@@ -209,7 +209,7 @@ class Program
                 layoutOnly: false,
                 renderResx: isDebug ? resXyInDebug: 2000,
                 renderResy: isDebug ? resXyInDebug: 2000,
-                dontCreateBoundaries: true),
+                dontCreateBoundaries: false),
 
             };
 
@@ -249,9 +249,12 @@ class Program
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
         BlenderExe: @"blender",
-        ScriptPath: @"blender2.py",
+        ScriptPath: Path.Combine(Path.GetFullPath(Path.Combine(inDir, "..", "..", "..")), "blender2.py"),
         Figure: Path.Combine(inDir, "base_character_3d.glb"),
-        Acc: new[] { Path.Combine(inDir, "accessory_1_3d.glb"), Path.Combine(inDir, "accessory_2_3d.glb"), Path.Combine(inDir, "accessory_3_3d.glb") },
+        Acc: new[] { "accessory_1_3d.glb", "accessory_2_3d.glb", "accessory_3_3d.glb" }
+             .Select(f => Path.Combine(inDir, f))
+             .Where(File.Exists)
+             .ToArray(),
         CardWidth: width,
         CardHeight: height,
         CardThickness: thickness,
