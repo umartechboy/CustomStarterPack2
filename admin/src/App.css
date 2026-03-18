@@ -495,6 +495,7 @@ tr:hover td {
   transition: all 0.2s;
   text-align: left;
   width: 100%;
+  color: var(--text-primary);
 }
 
 .download-card:hover {

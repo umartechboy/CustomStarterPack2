@@ -254,7 +254,7 @@ export default function OrderDetail() {
                 minWidth: '280px',
                 zIndex: 100
               }}>
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontWeight: 600 }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#1e293b' }}>
                   Retry from step:
                 </div>
                 {retrySteps.map(({ step, name, desc }) => (
@@ -269,12 +269,13 @@ export default function OrderDetail() {
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
+                      color: '#1e293b',
                       borderBottom: step < 6 ? '1px solid #f1f5f9' : 'none'
                     }}
                     onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
                     onMouseLeave={(e) => e.target.style.background = 'none'}
                   >
-                    <div style={{ fontWeight: 500 }}>Step {step}: {name}</div>
+                    <div style={{ fontWeight: 500, color: '#1e293b' }}>Step {step}: {name}</div>
                     <div style={{ fontSize: '12px', color: '#64748b' }}>{desc}</div>
                   </button>
                 ))}
@@ -588,54 +589,78 @@ export default function OrderDetail() {
           </div>
 
           {/* ---- Jigs ---- */}
-          {files?.outputs?.jigs?.length > 0 && (
-            <>
-              <h2 style={{ marginTop: '32px' }}><Download size={20} /> Jig Fixtures ({files.outputs.jigs.length} sides)</h2>
-              <div className="download-grid">
-                {files.outputs.jigs.map((jig) => (
-                  <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
-                    <div className="download-icon stl">{jig.side}</div>
-                    <div className="download-info">
-                      <span className="download-title">Jig {jig.side}</span>
-                      <span className="download-desc">Fixture STL for {jig.side} side</span>
-                    </div>
-                    <Download size={20} />
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          {files?.outputs?.jigs?.length > 0 && (() => {
+            const axes = ['X', 'Y', 'Z']
+            const jigsByAxis = {}
+            const printByAxis = {}
+            const cutByAxis = {}
+            axes.forEach(ax => {
+              jigsByAxis[ax] = files.outputs.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
+              printByAxis[ax] = (files.outputs.printing_files || []).filter(p => p.side.endsWith(ax)).sort((a, b) => {
+                const signCmp = a.side.startsWith('+') ? -1 : 1
+                if (a.side !== b.side) return signCmp
+                return (a.type === 'reference' ? 1 : 0) - (b.type === 'reference' ? 1 : 0)
+              })
+              cutByAxis[ax] = (files.outputs.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
+            })
+            return axes.filter(ax => jigsByAxis[ax].length > 0).map(ax => (
+              <div key={ax} style={{ marginTop: '32px' }}>
+                <h2><Download size={20} /> {ax}-Axis Jigs</h2>
 
-          {/* ---- Jig Printing & Cutting Files ---- */}
-          {files?.outputs?.printing_files?.length > 0 && (
-            <>
-              <h2 style={{ marginTop: '32px' }}><Download size={20} /> Jig Print & Cut Files</h2>
-              <div className="download-grid">
-                {files.outputs.printing_files.map((pf, i) => (
-                  <button key={i} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                    <div className="download-icon png" style={{ background: pf.type === 'reference' ? '#64748b' : '#f59e0b' }}>
-                      {pf.type === 'reference' ? 'REF' : 'PRT'}
+                <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Fixtures</h4>
+                <div className="download-grid">
+                  {jigsByAxis[ax].map(jig => (
+                    <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
+                      <div className="download-icon stl">{jig.side}</div>
+                      <div className="download-info">
+                        <span className="download-title">Jig {jig.side}</span>
+                        <span className="download-desc">Fixture STL for {jig.side} side</span>
+                      </div>
+                      <Download size={20} />
+                    </button>
+                  ))}
+                </div>
+
+                {printByAxis[ax].length > 0 && (
+                  <>
+                    <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Print Files</h4>
+                    <div className="download-grid">
+                      {printByAxis[ax].map((pf, i) => (
+                        <button key={i} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
+                          <div className="download-icon png" style={{ background: pf.type === 'reference' ? '#64748b' : '#f59e0b' }}>
+                            {pf.type === 'reference' ? 'REF' : 'PRT'}
+                          </div>
+                          <div className="download-info">
+                            <span className="download-title">{pf.type === 'reference' ? 'Reference' : 'Printing'} — {pf.side}</span>
+                            <span className="download-desc">{pf.type === 'reference' ? 'Jig reference overlay' : 'Print-ready jig image'}</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
                     </div>
-                    <div className="download-info">
-                      <span className="download-title">{pf.type === 'reference' ? 'Reference' : 'Printing'} — {pf.side}</span>
-                      <span className="download-desc">{pf.type === 'reference' ? 'Jig reference overlay' : 'Print-ready jig image'}</span>
+                  </>
+                )}
+
+                {cutByAxis[ax].length > 0 && (
+                  <>
+                    <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Cutting Files</h4>
+                    <div className="download-grid">
+                      {cutByAxis[ax].map((cf, i) => (
+                        <button key={i} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
+                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
+                          <div className="download-info">
+                            <span className="download-title">Cutting Path — {cf.side}</span>
+                            <span className="download-desc">DXF for cutting machine</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
                     </div>
-                    <Download size={20} />
-                  </button>
-                ))}
-                {files.outputs.cutting_files?.map((cf, i) => (
-                  <button key={`cut-${i}`} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
-                    <div className="download-icon" style={{ background: '#ef4444' }}>DXF</div>
-                    <div className="download-info">
-                      <span className="download-title">Cutting Path — {cf.side}</span>
-                      <span className="download-desc">DXF for cutting machine</span>
-                    </div>
-                    <Download size={20} />
-                  </button>
-                ))}
+                  </>
+                )}
               </div>
-            </>
-          )}
+            ))
+          })()}
 
           {/* ---- Stickers ---- */}
           {(files?.outputs?.sticker_front || files?.outputs?.sticker_back) && (
