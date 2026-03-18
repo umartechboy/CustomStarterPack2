@@ -2000,9 +2000,20 @@ async def get_starter_pack_files(job_id: str):
             "card_markers": None,
             "acc_texture": None,
             "composited_texture": None,
-            "jigs": [],
-            "printing_files": [],
-            "cutting_files": [],
+            "card": {
+                "jigs": [],
+                "printing_files": [],
+                "cutting_files": [],
+            },
+            "keychain": {
+                "figure_stl": None,
+                "jigs": [],
+                "printing_files": [],
+                "cutting_files": [],
+                "main_png": None,
+                "markers_png": None,
+                "reference_png": None,
+            },
         }
     }
 
@@ -2078,55 +2089,63 @@ async def get_starter_pack_files(job_id: str):
                 files["outputs"]["texture_25d"] = url
             elif f == f"{job_id}.blend":
                 files["outputs"]["blend_25d"] = url
-            # Card model STL (PrintMaker)
-            elif f == "card_model.stl":
-                files["outputs"]["stl"] = url
-            # Figure STL (raw figure)
+            # Stickers
+            elif f.endswith("_sticker_front.png"):
+                files["outputs"]["sticker_front"] = url
+            elif f.endswith("_sticker_back.png"):
+                files["outputs"]["sticker_back"] = url
+
+            # ---- Card-prefixed files ----
             elif f == "card_figure.stl":
                 files["outputs"]["figure_stl"] = url
-            # Blend files (PrintMaker)
-            elif f.endswith(".blend"):
+            elif f == "card_model.stl":
+                files["outputs"]["stl"] = url
+            elif f == "card_model.blend":
                 files["outputs"]["blend"] = url
-            # Textures and renders
             elif f == "card_main.png":
                 files["outputs"]["texture"] = url
             elif f == "card_reference.png":
                 files["outputs"]["card_reference"] = url
             elif f == "card_markers.png":
                 files["outputs"]["card_markers"] = url
-            elif f.endswith("_acc_texture.png"):
-                files["outputs"]["acc_texture"] = url
-            elif f.endswith("_composited.png"):
-                files["outputs"]["composited_texture"] = url
-            # Stickers
-            elif f.endswith("_sticker_front.png"):
-                files["outputs"]["sticker_front"] = url
-            elif f.endswith("_sticker_back.png"):
-                files["outputs"]["sticker_back"] = url
-            # Jig STLs
-            elif "jig_" in f and f.endswith(".stl"):
+            elif f == "card_jigs.blend":
+                files["outputs"]["card"]["blend"] = url
+            elif f.startswith("card_jig_") and f.endswith(".stl"):
                 side = f.replace("card_jig_", "").replace(".stl", "")
-                files["outputs"]["jigs"].append({
-                    "name": f, "url": url, "side": side
-                })
-            # Jig printing PNGs
-            elif "jig_" in f and f.endswith("_printing.png"):
+                files["outputs"]["card"]["jigs"].append({"name": f, "url": url, "side": side})
+            elif f.startswith("card_jig_") and f.endswith("_printing.png"):
                 side = f.replace("card_jig_", "").replace("_printing.png", "")
-                files["outputs"]["printing_files"].append({
-                    "name": f, "url": url, "side": side
-                })
-            # Jig reference PNGs
-            elif "jig_" in f and f.endswith("_reference.png"):
+                files["outputs"]["card"]["printing_files"].append({"name": f, "url": url, "side": side})
+            elif f.startswith("card_jig_") and f.endswith("_reference.png"):
                 side = f.replace("card_jig_", "").replace("_reference.png", "")
-                files["outputs"]["printing_files"].append({
-                    "name": f, "url": url, "side": side, "type": "reference"
-                })
-            # Cutting DXFs
-            elif f.endswith("_cutting.dxf"):
-                side = f.replace("card_jig_", "").replace("_cutting.dxf", "")
-                files["outputs"]["cutting_files"].append({
-                    "name": f, "url": url, "side": side
-                })
+                files["outputs"]["card"]["printing_files"].append({"name": f, "url": url, "side": side, "type": "reference"})
+            elif f.startswith("card_") and f.endswith("_cutting.dxf"):
+                side = f.replace("card_jig_", "").replace("_cutting.dxf", "").replace("card_", "")
+                files["outputs"]["card"]["cutting_files"].append({"name": f, "url": url, "side": side})
+
+            # ---- Keychain-prefixed files ----
+            elif f == "keychain_figure.stl":
+                files["outputs"]["keychain"]["figure_stl"] = url
+            elif f == "keychain_main.png":
+                files["outputs"]["keychain"]["main_png"] = url
+            elif f == "keychain_markers.png":
+                files["outputs"]["keychain"]["markers_png"] = url
+            elif f == "keychain_reference.png":
+                files["outputs"]["keychain"]["reference_png"] = url
+            elif f == "keychain_jigs.blend":
+                files["outputs"]["keychain"]["blend"] = url
+            elif f.startswith("keychain_jig_") and f.endswith(".stl"):
+                side = f.replace("keychain_jig_", "").replace(".stl", "")
+                files["outputs"]["keychain"]["jigs"].append({"name": f, "url": url, "side": side})
+            elif f.startswith("keychain_jig_") and f.endswith("_printing.png"):
+                side = f.replace("keychain_jig_", "").replace("_printing.png", "")
+                files["outputs"]["keychain"]["printing_files"].append({"name": f, "url": url, "side": side})
+            elif f.startswith("keychain_jig_") and f.endswith("_reference.png"):
+                side = f.replace("keychain_jig_", "").replace("_reference.png", "")
+                files["outputs"]["keychain"]["printing_files"].append({"name": f, "url": url, "side": side, "type": "reference"})
+            elif f.startswith("keychain_") and f.endswith("_cutting.dxf"):
+                side = f.replace("keychain_jig_", "").replace("_cutting.dxf", "").replace("keychain_", "")
+                files["outputs"]["keychain"]["cutting_files"].append({"name": f, "url": url, "side": side})
 
     return {"success": True, "job_id": job_id, "files": files}
 

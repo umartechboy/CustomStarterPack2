@@ -15,6 +15,8 @@ export default function OrderDetail() {
   const [retrying, setRetrying] = useState(false)
   const [showRetryMenu, setShowRetryMenu] = useState(false)
   const [regeneratingTexture, setRegeneratingTexture] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showKeychain, setShowKeychain] = useState(false)
 
   const fetchOrder = async () => {
     setLoading(true)
@@ -375,19 +377,60 @@ export default function OrderDetail() {
         </div>
       </div>
 
-      {/* Background Image Section */}
-      {files?.background_image && (
+      {/* ================================================================ */}
+      {/* 1. IMAGES                                                       */}
+      {/* ================================================================ */}
+
+      {/* 1.1 Generated Images (GPT) */}
+      {files?.generated_images?.length > 0 && (
         <div className="files-section">
-          <h2><Image size={20} /> Background Image</h2>
+          <h2><FileImage size={20} /> Generated Images (GPT)</h2>
+          <div className="images-grid">
+            {files.generated_images.map((img, i) => (
+              <div key={i} className="image-card">
+                <img src={`${API_BASE_URL}${img.url}`} alt={img.name} />
+                <div className="image-card-footer">
+                  <span className="image-type">{img.type}</span>
+                  <button className="btn btn-small" onClick={() => downloadFile(img.url, img.name)}>
+                    <Download size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 1.3 Depth Maps [advanced] */}
+      {showAdvanced && files?.depth_maps?.length > 0 && (
+        <div className="files-section">
+          <h2><Box size={20} /> Depth Maps (Sculptok) <span className="advanced-badge">Advanced</span></h2>
+          <div className="images-grid">
+            {files.depth_maps.map((img, i) => (
+              <div key={i} className="image-card">
+                <img src={`${API_BASE_URL}${img.url}`} alt={img.name} />
+                <div className="image-card-footer">
+                  <span className="image-type">Depth</span>
+                  <button className="btn btn-small" onClick={() => downloadFile(img.url, img.name)}>
+                    <Download size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 1.4 Background Image [advanced] */}
+      {showAdvanced && files?.background_image && (
+        <div className="files-section">
+          <h2><Image size={20} /> Background Image <span className="advanced-badge">Advanced</span></h2>
           <div className="images-grid">
             <div className="image-card" style={{ maxWidth: '300px' }}>
               <img src={`${API_BASE_URL}${files.background_image}`} alt="Background" />
               <div className="image-card-footer">
                 <span className="image-type">Background</span>
-                <button
-                  className="btn btn-small"
-                  onClick={() => downloadFile(files.background_image, `${order.job_id}_background.png`)}
-                >
+                <button className="btn btn-small" onClick={() => downloadFile(files.background_image, `${order.job_id}_background.png`)}>
                   <Download size={14} />
                 </button>
               </div>
@@ -396,309 +439,311 @@ export default function OrderDetail() {
         </div>
       )}
 
-      {/* Generated Images Section */}
-      {files?.generated_images?.length > 0 && (
-        <div className="files-section">
-          <h2><FileImage size={20} /> Generated Images (GPT-image-1.5)</h2>
-          <div className="images-grid">
-            {files.generated_images.map((img, i) => (
-              <div key={i} className="image-card">
-                <img src={`${API_BASE_URL}${img.url}`} alt={img.name} />
-                <div className="image-card-footer">
-                  <span className="image-type">{img.type}</span>
-                  <button
-                    className="btn btn-small"
-                    onClick={() => downloadFile(img.url, img.name)}
-                  >
-                    <Download size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Background-Removed Images Section */}
-      {files?.nobg_images?.length > 0 && (
-        <div className="files-section">
-          <h2><FileImage size={20} /> Background Removed (Sculptok HD)</h2>
-          <div className="images-grid">
-            {files.nobg_images.map((img, i) => (
-              <div key={i} className="image-card">
-                <img src={`${API_BASE_URL}${img.url}`} alt={img.name} />
-                <div className="image-card-footer">
-                  <span className="image-type">{img.type}</span>
-                  <button
-                    className="btn btn-small"
-                    onClick={() => downloadFile(img.url, img.name)}
-                  >
-                    <Download size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Depth Maps Section */}
-      {files?.depth_maps?.length > 0 && (
-        <div className="files-section">
-          <h2><Box size={20} /> Depth Maps (Sculptok)</h2>
-          <div className="images-grid">
-            {files.depth_maps.map((img, i) => (
-              <div key={i} className="image-card">
-                <img src={`${API_BASE_URL}${img.url}`} alt={img.name} />
-                <div className="image-card-footer">
-                  <span className="image-type">Depth</span>
-                  <button
-                    className="btn btn-small"
-                    onClick={() => downloadFile(img.url, img.name)}
-                  >
-                    <Download size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Final Outputs / Download Section */}
+      {/* ================================================================ */}
+      {/* 2. MANUFACTURING                                                */}
+      {/* ================================================================ */}
       {order.status === 'completed' && (
         <div className="download-section">
-          {/* ---- 3D Models ---- */}
-          <h2><Download size={20} /> 3D Models</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h2 style={{ margin: 0 }}><Package size={20} /> Manufacturing</h2>
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#64748b' }}>
+                <input
+                  type="checkbox"
+                  checked={showKeychain}
+                  onChange={(e) => setShowKeychain(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                Show Keychain
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#64748b' }}>
+                <input
+                  type="checkbox"
+                  checked={showAdvanced}
+                  onChange={(e) => setShowAdvanced(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                Show Advanced
+              </label>
+            </div>
+          </div>
+
+          {/* ---- 2.1 Card ---- */}
+          <h3 style={{ margin: '24px 0 12px', color: '#334155', fontSize: '18px' }}>Card</h3>
           <div className="download-grid">
             {files?.outputs?.stl_25d && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.stl_25d, `${order.job_id}_2.5d_card.stl`)}>
+              <button className="download-card" onClick={() => downloadFile(files.outputs.stl_25d, `${order.job_id}_card.stl`)}>
                 <div className="download-icon stl">STL</div>
                 <div className="download-info">
-                  <span className="download-title">2.5D Card</span>
+                  <span className="download-title">Card STL (2.5D)</span>
                   <span className="download-desc">Depth-displaced card with accessories</span>
                 </div>
                 <Download size={20} />
               </button>
             )}
-            {files?.outputs?.stl && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.stl, `${order.job_id}_card_model.stl`)}>
-                <div className="download-icon stl">STL</div>
+            {files?.outputs?.texture_25d && (
+              <button className="download-card" onClick={() => downloadFile(files.outputs.texture_25d, `${order.job_id}_card_texture.png`)}>
+                <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
                 <div className="download-info">
-                  <span className="download-title">Card Model</span>
-                  <span className="download-desc">Figure on card — for 3D printing</span>
+                  <span className="download-title">Card Texture</span>
+                  <span className="download-desc">UV print texture for card</span>
                 </div>
                 <Download size={20} />
               </button>
             )}
+            {showAdvanced && files?.outputs?.blend_25d && (
+              <button className="download-card" onClick={() => downloadFile(files.outputs.blend_25d, `${order.job_id}_card.blend`)}>
+                <div className="download-icon blend">BLEND</div>
+                <div className="download-info">
+                  <span className="download-title">Card Blend File <span className="advanced-badge">Advanced</span></span>
+                  <span className="download-desc">Blender source for card</span>
+                </div>
+                <Download size={20} />
+              </button>
+            )}
+          </div>
+
+          {/* ---- 2.2 Figure ---- */}
+          <h3 style={{ margin: '32px 0 12px', color: '#334155', fontSize: '18px' }}>Figure</h3>
+          <div className="download-grid">
             {files?.outputs?.figure_stl && (
               <button className="download-card" onClick={() => downloadFile(files.outputs.figure_stl, `${order.job_id}_figure.stl`)}>
                 <div className="download-icon stl">STL</div>
                 <div className="download-info">
-                  <span className="download-title">Figure Only</span>
-                  <span className="download-desc">Raw figure mesh</span>
+                  <span className="download-title">Figure STL</span>
+                  <span className="download-desc">3D figure mesh for printing</span>
                 </div>
                 <Download size={20} />
               </button>
             )}
-            {files?.outputs?.figure_glb && (
+            {showAdvanced && files?.outputs?.figure_glb && (
               <button className="download-card" onClick={() => downloadFile(files.outputs.figure_glb, `${order.job_id}_figure.glb`)}>
                 <div className="download-icon" style={{ background: '#8b5cf6' }}>GLB</div>
                 <div className="download-info">
-                  <span className="download-title">Figure GLB</span>
-                  <span className="download-desc">Textured 3D model from FAL.AI</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.blend && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.blend, `${order.job_id}.blend`)}>
-                <div className="download-icon blend">BLEND</div>
-                <div className="download-info">
-                  <span className="download-title">Blender File</span>
-                  <span className="download-desc">For manual editing</span>
+                  <span className="download-title">Figure GLB <span className="advanced-badge">Advanced</span></span>
+                  <span className="download-desc">Textured 3D model from fal.ai</span>
                 </div>
                 <Download size={20} />
               </button>
             )}
           </div>
 
-          {/* ---- UV Print & Textures ---- */}
-          <h2 style={{ marginTop: '32px' }}><Download size={20} /> UV Print & Textures</h2>
-          <div className="download-grid">
-            {files?.outputs?.texture_25d && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.texture_25d, `${order.job_id}_2.5d_texture.png`)}>
-                <div className="download-icon png" style={{ background: '#f59e0b' }}>2.5D</div>
-                <div className="download-info">
-                  <span className="download-title">2.5D Card Texture</span>
-                  <span className="download-desc">Full card with figure + accessories</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.acc_texture && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.acc_texture, `${order.job_id}_uv_print.png`)}>
-                <div className="download-icon png">UV</div>
-                <div className="download-info">
-                  <span className="download-title">UV Print (Accessories)</span>
-                  <span className="download-desc">Card layout without figure — for UV printer</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.texture && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.texture, `${order.job_id}_figure_render.png`)}>
-                <div className="download-icon png">PNG</div>
-                <div className="download-info">
-                  <span className="download-title">Figure Render</span>
-                  <span className="download-desc">PrintMaker figure card render</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.composited_texture && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.composited_texture, `${order.job_id}_composited.png`)}>
-                <div className="download-icon png" style={{ background: '#0ea5e9' }}>FULL</div>
-                <div className="download-info">
-                  <span className="download-title">Composited Card</span>
-                  <span className="download-desc">Figure + accessories + text combined</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.card_reference && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.card_reference, `${order.job_id}_reference.png`)}>
-                <div className="download-icon png" style={{ background: '#64748b' }}>REF</div>
-                <div className="download-info">
-                  <span className="download-title">Reference Image</span>
-                  <span className="download-desc">Card with alignment markers</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.card_markers && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.card_markers, `${order.job_id}_markers.png`)}>
-                <div className="download-icon png" style={{ background: '#94a3b8' }}>MRK</div>
-                <div className="download-info">
-                  <span className="download-title">Markers Only</span>
-                  <span className="download-desc">Alignment markers layer</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-          </div>
-
-          {/* ---- Jigs ---- */}
-          {files?.outputs?.jigs?.length > 0 && (() => {
+          {/* ---- Card Jigs ---- */}
+          {files?.outputs?.card?.jigs?.length > 0 && (() => {
+            const variant = files.outputs.card
             const axes = ['X', 'Y', 'Z']
-            const jigsByAxis = {}
-            const printByAxis = {}
-            const cutByAxis = {}
+            const grouped = {}
             axes.forEach(ax => {
-              jigsByAxis[ax] = files.outputs.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
-              printByAxis[ax] = (files.outputs.printing_files || []).filter(p => p.side.endsWith(ax)).sort((a, b) => {
-                const signCmp = a.side.startsWith('+') ? -1 : 1
-                if (a.side !== b.side) return signCmp
-                return (a.type === 'reference' ? 1 : 0) - (b.type === 'reference' ? 1 : 0)
-              })
-              cutByAxis[ax] = (files.outputs.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
+              grouped[ax] = {
+                jigs: variant.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                prints: (variant.printing_files || []).filter(p => p.side.endsWith(ax) && p.type !== 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                refs: (variant.printing_files || []).filter(p => p.side.endsWith(ax) && p.type === 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                cuts: (variant.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+              }
             })
-            return axes.filter(ax => jigsByAxis[ax].length > 0).map(ax => (
-              <div key={ax} style={{ marginTop: '32px' }}>
-                <h2><Download size={20} /> {ax}-Axis Jigs</h2>
-
-                <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Fixtures</h4>
-                <div className="download-grid">
-                  {jigsByAxis[ax].map(jig => (
-                    <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
-                      <div className="download-icon stl">{jig.side}</div>
+            return (
+              <>
+                <h4 style={{ margin: '24px 0 12px', color: '#475569', fontSize: '15px' }}>Jigs</h4>
+                {axes.filter(ax => grouped[ax].jigs.length > 0).map(ax => (
+                  <div key={ax} style={{ marginBottom: '20px' }}>
+                    <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
+                    <div className="download-grid">
+                      {grouped[ax].jigs.map(jig => (
+                        <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
+                          <div className="download-icon stl">{jig.side}</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {jig.side} STL</span>
+                            <span className="download-desc">Fixture for {jig.side} side</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {grouped[ax].prints.map((pf, i) => (
+                        <button key={`prt-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
+                          <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {pf.side} Print</span>
+                            <span className="download-desc">Print-ready image</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {showAdvanced && grouped[ax].refs.map((pf, i) => (
+                        <button key={`ref-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
+                          <div className="download-icon png" style={{ background: '#64748b' }}>REF</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {pf.side} Reference <span className="advanced-badge">Advanced</span></span>
+                            <span className="download-desc">Reference overlay</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {showAdvanced && grouped[ax].cuts.map((cf, i) => (
+                        <button key={`cut-${i}`} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
+                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {cf.side} Cutting <span className="advanced-badge">Advanced</span></span>
+                            <span className="download-desc">DXF cutting path</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {showAdvanced && variant.blend && (
+                  <div className="download-grid" style={{ marginTop: '8px' }}>
+                    <button className="download-card" onClick={() => downloadFile(variant.blend, `${order.job_id}_card_jigs.blend`)}>
+                      <div className="download-icon blend">BLEND</div>
                       <div className="download-info">
-                        <span className="download-title">Jig {jig.side}</span>
-                        <span className="download-desc">Fixture STL for {jig.side} side</span>
+                        <span className="download-title">Card Jigs Blend <span className="advanced-badge">Advanced</span></span>
+                        <span className="download-desc">Blender source for card jigs</span>
                       </div>
                       <Download size={20} />
                     </button>
-                  ))}
-                </div>
-
-                {printByAxis[ax].length > 0 && (
-                  <>
-                    <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Print Files</h4>
-                    <div className="download-grid">
-                      {printByAxis[ax].map((pf, i) => (
-                        <button key={i} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                          <div className="download-icon png" style={{ background: pf.type === 'reference' ? '#64748b' : '#f59e0b' }}>
-                            {pf.type === 'reference' ? 'REF' : 'PRT'}
-                          </div>
-                          <div className="download-info">
-                            <span className="download-title">{pf.type === 'reference' ? 'Reference' : 'Printing'} — {pf.side}</span>
-                            <span className="download-desc">{pf.type === 'reference' ? 'Jig reference overlay' : 'Print-ready jig image'}</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                  </div>
                 )}
-
-                {cutByAxis[ax].length > 0 && (
-                  <>
-                    <h4 style={{ margin: '16px 0 8px', color: '#475569' }}>Cutting Files</h4>
-                    <div className="download-grid">
-                      {cutByAxis[ax].map((cf, i) => (
-                        <button key={i} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
-                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
-                          <div className="download-info">
-                            <span className="download-title">Cutting Path — {cf.side}</span>
-                            <span className="download-desc">DXF for cutting machine</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))
+              </>
+            )
           })()}
 
-          {/* ---- Stickers ---- */}
-          {(files?.outputs?.sticker_front || files?.outputs?.sticker_back) && (
-            <>
-              <h2 style={{ marginTop: '32px' }}><Download size={20} /> Stickers</h2>
-              <div className="download-grid">
-                {files?.outputs?.sticker_front && (
-                  <button className="download-card" onClick={() => downloadFile(files.outputs.sticker_front, `${order.job_id}_sticker_front.png`)}>
-                    <div className="download-icon png" style={{ background: '#10b981' }}>FRONT</div>
-                    <div className="download-info">
-                      <span className="download-title">Sticker Front</span>
-                      <span className="download-desc">130×170mm @ 300 DPI</span>
+          {/* ---- Keychain (toggled) ---- */}
+          {showKeychain && files?.outputs?.keychain?.jigs?.length > 0 && (() => {
+            const kc = files.outputs.keychain
+            const axes = ['X', 'Y', 'Z']
+            const grouped = {}
+            axes.forEach(ax => {
+              grouped[ax] = {
+                jigs: kc.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                prints: (kc.printing_files || []).filter(p => p.side.endsWith(ax) && p.type !== 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                refs: (kc.printing_files || []).filter(p => p.side.endsWith(ax) && p.type === 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+                cuts: (kc.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
+              }
+            })
+            return (
+              <>
+                <h3 style={{ margin: '32px 0 12px', color: '#334155', fontSize: '18px' }}>Keychain</h3>
+                <div className="download-grid">
+                  {kc.figure_stl && (
+                    <button className="download-card" onClick={() => downloadFile(kc.figure_stl, `${order.job_id}_keychain_figure.stl`)}>
+                      <div className="download-icon stl">STL</div>
+                      <div className="download-info">
+                        <span className="download-title">Keychain Figure STL</span>
+                        <span className="download-desc">Figure mesh for keychain</span>
+                      </div>
+                      <Download size={20} />
+                    </button>
+                  )}
+                </div>
+                <h4 style={{ margin: '24px 0 12px', color: '#475569', fontSize: '15px' }}>Keychain Jigs</h4>
+                {axes.filter(ax => grouped[ax].jigs.length > 0).map(ax => (
+                  <div key={ax} style={{ marginBottom: '20px' }}>
+                    <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
+                    <div className="download-grid">
+                      {grouped[ax].jigs.map(jig => (
+                        <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
+                          <div className="download-icon stl">{jig.side}</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {jig.side} STL</span>
+                            <span className="download-desc">Fixture for {jig.side} side</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {grouped[ax].prints.map((pf, i) => (
+                        <button key={`prt-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
+                          <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {pf.side} Print</span>
+                            <span className="download-desc">Print-ready image</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {showAdvanced && grouped[ax].refs.map((pf, i) => (
+                        <button key={`ref-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
+                          <div className="download-icon png" style={{ background: '#64748b' }}>REF</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {pf.side} Reference <span className="advanced-badge">Advanced</span></span>
+                            <span className="download-desc">Reference overlay</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
+                      {showAdvanced && grouped[ax].cuts.map((cf, i) => (
+                        <button key={`cut-${i}`} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
+                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
+                          <div className="download-info">
+                            <span className="download-title">Jig {cf.side} Cutting <span className="advanced-badge">Advanced</span></span>
+                            <span className="download-desc">DXF cutting path</span>
+                          </div>
+                          <Download size={20} />
+                        </button>
+                      ))}
                     </div>
-                    <Download size={20} />
-                  </button>
+                  </div>
+                ))}
+                {showAdvanced && kc.blend && (
+                  <div className="download-grid" style={{ marginTop: '8px' }}>
+                    <button className="download-card" onClick={() => downloadFile(kc.blend, `${order.job_id}_keychain_jigs.blend`)}>
+                      <div className="download-icon blend">BLEND</div>
+                      <div className="download-info">
+                        <span className="download-title">Keychain Jigs Blend <span className="advanced-badge">Advanced</span></span>
+                        <span className="download-desc">Blender source for keychain jigs</span>
+                      </div>
+                      <Download size={20} />
+                    </button>
+                  </div>
                 )}
-                {files?.outputs?.sticker_back && (
-                  <button className="download-card" onClick={() => downloadFile(files.outputs.sticker_back, `${order.job_id}_sticker_back.png`)}>
-                    <div className="download-icon png" style={{ background: '#6366f1' }}>BACK</div>
-                    <div className="download-info">
-                      <span className="download-title">Sticker Back</span>
-                      <span className="download-desc">130×170mm @ 300 DPI</span>
-                    </div>
-                    <Download size={20} />
+              </>
+            )
+          })()}
+
+          {/* ---- 2.3 Stickers ---- */}
+          <h3 style={{ margin: '32px 0 12px', color: '#334155', fontSize: '18px' }}>Stickers</h3>
+          {(files?.outputs?.sticker_front || files?.outputs?.sticker_back) ? (
+            <div className="stickers-grid" style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: '24px'
+            }}>
+              {files?.outputs?.sticker_front && (
+                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#475569' }}>Front</h4>
+                  <div style={{ background: '#fff', borderRadius: '8px', padding: '8px', marginBottom: '12px' }}>
+                    <img src={`${API_BASE_URL}${files.outputs.sticker_front}`} alt="Front Sticker" style={{ width: '100%', height: 'auto', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                  </div>
+                  <button className="btn btn-small" onClick={() => downloadFile(files.outputs.sticker_front, `${order.job_id}_sticker_front.png`)} style={{ width: '100%' }}>
+                    <Download size={14} /> Download Front
                   </button>
-                )}
-              </div>
-            </>
+                </div>
+              )}
+              {files?.outputs?.sticker_back && (
+                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#475569' }}>Back</h4>
+                  <div style={{ background: '#fff', borderRadius: '8px', padding: '8px', marginBottom: '12px' }}>
+                    <img src={`${API_BASE_URL}${files.outputs.sticker_back}`} alt="Back Sticker" style={{ width: '100%', height: 'auto', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                  </div>
+                  <button className="btn btn-small" onClick={() => downloadFile(files.outputs.sticker_back, `${order.job_id}_sticker_back.png`)} style={{ width: '100%' }}>
+                    <Download size={14} /> Download Back
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="empty-text">No stickers generated yet</p>
           )}
 
-          {!files?.outputs?.stl && !files?.outputs?.stl_25d && !files?.outputs?.texture && !files?.outputs?.figure_glb && (
-            <p className="empty-text">No files available yet</p>
+          {!files?.outputs?.stl_25d && !files?.outputs?.figure_stl && !files?.outputs?.sticker_front && (
+            <p className="empty-text">No manufacturing files available yet</p>
           )}
         </div>
       )}
 
-      {/* Texture Preview */}
-      {order.status === 'completed' && files?.outputs?.texture && (
+      {/* ================================================================ */}
+      {/* 3. TEXTURE PREVIEW                                              */}
+      {/* ================================================================ */}
+      {order.status === 'completed' && (files?.outputs?.texture_25d || files?.outputs?.texture) && (
         <>
           <div className="texture-actions" style={{
             display: 'flex',
@@ -723,88 +768,6 @@ export default function OrderDetail() {
             baseUrl={API_BASE_URL}
           />
         </>
-      )}
-
-      {/* Stickers Preview */}
-      {order.status === 'completed' && (files?.outputs?.sticker_front || files?.outputs?.sticker_back) && (
-        <div className="files-section" style={{ marginTop: '24px' }}>
-          <h2><FileImage size={20} /> Stickers (130mm × 170mm @ 300 DPI)</h2>
-          <div className="stickers-grid" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: '24px',
-            marginTop: '16px'
-          }}>
-            {files?.outputs?.sticker_front && (
-              <div className="sticker-card" style={{
-                background: '#f8fafc',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0'
-              }}>
-                <h4 style={{ margin: '0 0 12px 0', color: '#475569' }}>Front Sticker</h4>
-                <div style={{
-                  background: '#fff',
-                  borderRadius: '8px',
-                  padding: '8px',
-                  marginBottom: '12px'
-                }}>
-                  <img
-                    src={`${API_BASE_URL}${files.outputs.sticker_front}`}
-                    alt="Front Sticker"
-                    style={{
-                      width: '100%',
-                      height: 'auto',
-                      borderRadius: '4px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                    }}
-                  />
-                </div>
-                <button
-                  className="btn btn-small"
-                  onClick={() => downloadFile(files.outputs.sticker_front, `${order.job_id}_sticker_front.png`)}
-                  style={{ width: '100%' }}
-                >
-                  <Download size={14} /> Download Front
-                </button>
-              </div>
-            )}
-            {files?.outputs?.sticker_back && (
-              <div className="sticker-card" style={{
-                background: '#f8fafc',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0'
-              }}>
-                <h4 style={{ margin: '0 0 12px 0', color: '#475569' }}>Back Sticker</h4>
-                <div style={{
-                  background: '#fff',
-                  borderRadius: '8px',
-                  padding: '8px',
-                  marginBottom: '12px'
-                }}>
-                  <img
-                    src={`${API_BASE_URL}${files.outputs.sticker_back}`}
-                    alt="Back Sticker"
-                    style={{
-                      width: '100%',
-                      height: 'auto',
-                      borderRadius: '4px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                    }}
-                  />
-                </div>
-                <button
-                  className="btn btn-small"
-                  onClick={() => downloadFile(files.outputs.sticker_back, `${order.job_id}_sticker_back.png`)}
-                  style={{ width: '100%' }}
-                >
-                  <Download size={14} /> Download Back
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
       )}
 
       {/* Processing Status */}
