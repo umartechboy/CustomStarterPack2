@@ -171,8 +171,9 @@ export default function OrderDetail() {
     { step: 2, name: 'Background Image', desc: 'Re-generate background only' },
     { step: 3, name: 'Background Removal', desc: 'Skip (GPT provides transparent PNGs)' },
     { step: 4, name: '3D + Depth Maps', desc: 'Figure → FAL.AI GLB, Accessories → Sculptok depth' },
-    { step: 5, name: 'PrintMaker + Blender', desc: 'Figure STL/jigs + accessories card' },
-    { step: 6, name: 'Stickers', desc: 'Re-generate front/back stickers' }
+    { step: 5, name: 'Blender 2.5D Card', desc: 'Depth map displacement → card STL + texture' },
+    { step: 6, name: 'PrintMaker', desc: 'Figure STL, jigs, printing assets' },
+    { step: 7, name: 'Stickers', desc: 'Re-generate front/back stickers' }
   ]
 
   const getTextColorDisplay = (color) => {
@@ -469,6 +470,16 @@ export default function OrderDetail() {
           {/* ---- 3D Models ---- */}
           <h2><Download size={20} /> 3D Models</h2>
           <div className="download-grid">
+            {files?.outputs?.stl_25d && (
+              <button className="download-card" onClick={() => downloadFile(files.outputs.stl_25d, `${order.job_id}_2.5d_card.stl`)}>
+                <div className="download-icon stl">STL</div>
+                <div className="download-info">
+                  <span className="download-title">2.5D Card</span>
+                  <span className="download-desc">Depth-displaced card with accessories</span>
+                </div>
+                <Download size={20} />
+              </button>
+            )}
             {files?.outputs?.stl && (
               <button className="download-card" onClick={() => downloadFile(files.outputs.stl, `${order.job_id}_card_model.stl`)}>
                 <div className="download-icon stl">STL</div>
@@ -514,6 +525,16 @@ export default function OrderDetail() {
           {/* ---- UV Print & Textures ---- */}
           <h2 style={{ marginTop: '32px' }}><Download size={20} /> UV Print & Textures</h2>
           <div className="download-grid">
+            {files?.outputs?.texture_25d && (
+              <button className="download-card" onClick={() => downloadFile(files.outputs.texture_25d, `${order.job_id}_2.5d_texture.png`)}>
+                <div className="download-icon png" style={{ background: '#f59e0b' }}>2.5D</div>
+                <div className="download-info">
+                  <span className="download-title">2.5D Card Texture</span>
+                  <span className="download-desc">Full card with figure + accessories</span>
+                </div>
+                <Download size={20} />
+              </button>
+            )}
             {files?.outputs?.acc_texture && (
               <button className="download-card" onClick={() => downloadFile(files.outputs.acc_texture, `${order.job_id}_uv_print.png`)}>
                 <div className="download-icon png">UV</div>
@@ -645,7 +666,7 @@ export default function OrderDetail() {
             </>
           )}
 
-          {!files?.outputs?.stl && !files?.outputs?.texture && !files?.outputs?.figure_glb && (
+          {!files?.outputs?.stl && !files?.outputs?.stl_25d && !files?.outputs?.texture && !files?.outputs?.figure_glb && (
             <p className="empty-text">No files available yet</p>
           )}
         </div>
@@ -673,7 +694,7 @@ export default function OrderDetail() {
             </button>
           </div>
           <TexturePreview
-            textureUrl={order.texture_url || files?.outputs?.texture}
+            textureUrl={files?.outputs?.texture_25d || order.texture_url || files?.outputs?.texture}
             baseUrl={API_BASE_URL}
           />
         </>

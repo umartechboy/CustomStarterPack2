@@ -27,6 +27,42 @@ class Program
     static string makeArtifactInDebug = "card"; // "" for both, "null" for none, "card", "keychain"
     static int resXyInDebug = 300;
     static bool isDebug = false;
+
+    static bool BlenderRenderOutputsExist(string midDir, string outDir, string nameSeed)
+    {
+        var files = new[] {
+            Path.Combine(midDir, $"{nameSeed}_layout.json"),
+            Path.Combine(midDir, $"{nameSeed}_scene_render.png"),
+            Path.Combine(outDir, $"{nameSeed}_model.stl"),
+        };
+        return files.All(File.Exists);
+    }
+
+    static bool JigOutputsExist(string outDir, string nameSeed, string[] jigSides)
+    {
+        if (!File.Exists(Path.Combine(outDir, $"{nameSeed}_jigs_meta.json")))
+            return false;
+        if (!File.Exists(Path.Combine(outDir, $"{nameSeed}_figure.stl")))
+            return false;
+        return jigSides.All(side =>
+            File.Exists(Path.Combine(outDir, $"{nameSeed}_jig_{side}.stl")));
+    }
+
+    static bool PrintableOutputsExist(string outDir, string nameSeed)
+    {
+        var files = new[] {
+            Path.Combine(outDir, $"{nameSeed}_printing.png"),
+            Path.Combine(outDir, $"{nameSeed}_cutting.dxf"),
+        };
+        return files.All(File.Exists);
+    }
+
+    static bool SeparateMarkersOutputsExist(string outDir, string nameSeed)
+    {
+        return File.Exists(Path.Combine(outDir, $"{nameSeed}_main.png"))
+            && File.Exists(Path.Combine(outDir, $"{nameSeed}_markers.png"));
+    }
+
     static async Task<int> Main(string[] args)
     {
         if (args == null)
@@ -214,24 +250,38 @@ class Program
             };
 
             Task.WaitAll(tasks);
-            await CreateAllSeparateMarkers(
-                nameSeed: "keychain",
-                inDir: inDir,
-                outDir: outDir,
-                dpi: dpi,
-                cardWidth: 130 * 0.3f,
-                cardHeight: 190 * 0.3f,
-                borderSize: 15   // Scaled down for keychain
-            );
-            await CreateAllSeparateMarkers(
-                nameSeed: "card",
-                inDir: inDir,
-                outDir: outDir,
-                dpi: dpi,
-                cardWidth: 130,  // Use your actual card width
-                cardHeight: 190, // Use your actual card height
-                borderSize: 50   // Tune this value based on your render
-            );
+            if (SeparateMarkersOutputsExist(outDir, "keychain"))
+            {
+                Console.WriteLine("[SKIP] Separate marker outputs already exist for keychain");
+            }
+            else
+            {
+                await CreateAllSeparateMarkers(
+                    nameSeed: "keychain",
+                    inDir: inDir,
+                    outDir: outDir,
+                    dpi: dpi,
+                    cardWidth: 130 * 0.3f,
+                    cardHeight: 190 * 0.3f,
+                    borderSize: 15   // Scaled down for keychain
+                );
+            }
+            if (SeparateMarkersOutputsExist(outDir, "card"))
+            {
+                Console.WriteLine("[SKIP] Separate marker outputs already exist for card");
+            }
+            else
+            {
+                await CreateAllSeparateMarkers(
+                    nameSeed: "card",
+                    inDir: inDir,
+                    outDir: outDir,
+                    dpi: dpi,
+                    cardWidth: 130,  // Use your actual card width
+                    cardHeight: 190, // Use your actual card height
+                    borderSize: 50   // Tune this value based on your render
+                );
+            }
 
             return 0;
         }
@@ -246,6 +296,13 @@ class Program
     {
         if (isDebug && !nameSeed.Contains(makeArtifactInDebug))
         { Console.WriteLine("Skipping " + nameSeed + " in  debug"); return; }
+
+        string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
+        bool skipRender = BlenderRenderOutputsExist(inDir, outDir, nameSeed);
+        bool skipJigs = JigOutputsExist(outDir, nameSeed, jigSides);
+        if (skipRender) Console.WriteLine($"[SKIP] Blender render outputs already exist for {nameSeed}");
+        if (skipJigs) Console.WriteLine($"[SKIP] Jig outputs already exist for {nameSeed}");
+
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
         BlenderExe: @"blender",
@@ -261,8 +318,8 @@ class Program
         OutDir: outDir,
         MidDir: inDir,
         JobId: jobID,
-        DontRunBlenderForRender: dontRunBlender2PyInDebug && isDebug,
-        DontRunBlenderForJigs: dontRunJigsInDebug && isDebug,
+        DontRunBlenderForRender: skipRender || (dontRunBlender2PyInDebug && isDebug),
+        DontRunBlenderForJigs: skipJigs || (dontRunJigsInDebug && isDebug),
         ModelNameSeed: nameSeed,
         HasHole: hasHole,
         HoleMargin: 5,
@@ -300,7 +357,6 @@ class Program
                 double slotH = jigsMeta.MasterSize.Y; // MASTER_Y
                 double masterZ = jigsMeta.MasterSize.Z; // MASTER_Z
 
-                string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
                 foreach (var side in jigSides)
                 {
                     string jigPngPath = Path.Combine(inDir, $"{nameSeed}_jig_render_{side}.png");
@@ -361,8 +417,14 @@ class Program
                     composedJigImage.Mutate(ctx => ctx.DrawImage(renderedJig, new Point(posX, posY), 1f));
 
                     string jigNameSeed = $"{nameSeed}_jig_{side}";
-                    GeneratePrintableAssets(composedJigImage, jigNameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, 0f, layoutOnly);
-                    
+                    if (PrintableOutputsExist(outDir, jigNameSeed))
+                    {
+                        Console.WriteLine($"[SKIP] Printable outputs already exist for {jigNameSeed}");
+                    }
+                    else
+                    {
+                        GeneratePrintableAssets(composedJigImage, jigNameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, 0f, layoutOnly);
+                    }
                     composedJigImage.Dispose();
                 }
             }
@@ -379,8 +441,15 @@ class Program
             layoutOnly: layoutOnly
         );
 
-        GeneratePrintableAssets(composedImage, nameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, cardFillet, layoutOnly);
-        
+        if (PrintableOutputsExist(outDir, nameSeed))
+        {
+            Console.WriteLine($"[SKIP] Printable outputs already exist for {nameSeed}");
+        }
+        else
+        {
+            GeneratePrintableAssets(composedImage, nameSeed, outDir, dpi, cutSmoothing, cuttingMargin_mm, minStickerSizes_smm, cardFillet, layoutOnly);
+        }
+
         Console.WriteLine("All Done. Exiting...");
         // OR to distinguish holes:
         // BoundaryDetector.PaintBoundaries(canvas, infos, new Rgba32(255,0,0,255), new Rgba32(0,255,0,255), thickness: 2);

@@ -1679,18 +1679,19 @@ async def retry_starter_pack_order(job_id: str, from_step: int = 5):
     2 - Background image generation
     3 - Background removal (Sculptok HD)
     4 - Depth map generation
-    5 - Blender processing
-    6 - Sticker generation
+    5 - Blender 2.5D card (depth map displacement)
+    6 - PrintMaker (figure STL, jigs, printing assets)
+    7 - Sticker generation
 
     Args:
         job_id: The job ID to retry
-        from_step: Step number to resume from (1-6, default: 5 for just Blender)
+        from_step: Step number to resume from (1-7, default: 5 for Blender 2.5D)
     """
     from services.order_processor import get_order_processor
 
     # Validate step number
-    if from_step < 1 or from_step > 6:
-        return {"success": False, "error": "from_step must be between 1 and 6"}
+    if from_step < 1 or from_step > 7:
+        return {"success": False, "error": "from_step must be between 1 and 7"}
 
     # Get order from database
     supabase = get_supabase_client()
@@ -1730,8 +1731,9 @@ async def retry_starter_pack_order(job_id: str, from_step: int = 5):
         2: "Background Image",
         3: "Background Removal",
         4: "Depth Map Generation",
-        5: "Blender Processing",
-        6: "Sticker Generation"
+        5: "Blender 2.5D Card",
+        6: "PrintMaker",
+        7: "Sticker Generation"
     }
 
     return {
@@ -1840,8 +1842,6 @@ async def regenerate_texture_only(job_id: str):
         "--",
         "--texture-only",
         "--blend-file", blend_file,
-        "--figure_img", figure_img,
-        "--figure_depth", "",  # Not needed for texture-only
         "--output_dir", final_output_dir,
         "--job_id", job_id,
         "--background_type", background_type,
@@ -1992,6 +1992,9 @@ async def get_starter_pack_files(job_id: str):
             "sticker_front": None,
             "sticker_back": None,
             "figure_glb": None,
+            "stl_25d": None,
+            "texture_25d": None,
+            "blend_25d": None,
             "figure_stl": None,
             "card_reference": None,
             "card_markers": None,
@@ -2068,13 +2071,20 @@ async def get_starter_pack_files(job_id: str):
         for f in sorted(os.listdir(output_dir)):
             url = f"{base_url}/final_output/{f}"
 
-            # Card model STL (main)
-            if f == "card_model.stl":
+            # Blender 2.5D outputs (job_id.stl, job_id_texture.png, job_id.blend)
+            if f == f"{job_id}.stl":
+                files["outputs"]["stl_25d"] = url
+            elif f == f"{job_id}_texture.png":
+                files["outputs"]["texture_25d"] = url
+            elif f == f"{job_id}.blend":
+                files["outputs"]["blend_25d"] = url
+            # Card model STL (PrintMaker)
+            elif f == "card_model.stl":
                 files["outputs"]["stl"] = url
             # Figure STL (raw figure)
             elif f == "card_figure.stl":
                 files["outputs"]["figure_stl"] = url
-            # Blend files
+            # Blend files (PrintMaker)
             elif f.endswith(".blend"):
                 files["outputs"]["blend"] = url
             # Textures and renders
@@ -2385,29 +2395,8 @@ Requirements:
         sculptok_output_dir = os.path.join(job_dir, "sculptok_output")
         os.makedirs(sculptok_output_dir, exist_ok=True)
 
-        # Process figure
-        logger.info(f"\n   Processing figure depth map...")
-        figure_sculptok_dir = os.path.join(sculptok_output_dir, "base_character")
-        os.makedirs(figure_sculptok_dir, exist_ok=True)
-
-        figure_depth_result = await sculptok_client.process_image_to_depth_map(
-            image_path=figure_img.get("file_path"),
-            output_dir=figure_sculptok_dir,
-            image_name="base_character",
-            skip_bg_removal=True,  # GPT images already have transparent bg
-            style="pro",
-            version="1.5",
-            draw_hd="4k",
-            ext_info="16bit"
-        )
-
-        if figure_depth_result.get("success"):
-            depth_maps["figure"] = figure_depth_result.get("outputs", {}).get("depth_image")
-            logger.info(f"   ✅ Figure depth map: {depth_maps['figure']}")
-        else:
-            error_msg = f"Figure depth map failed: {figure_depth_result.get('error')}"
-            logger.error(f"   ❌ {error_msg}")
-            results["errors"].append(error_msg)
+        # Figure depth map is no longer needed — figure is full 3D via fal.ai, placed by PrintMaker
+        logger.info(f"\n   Skipping figure depth map (figure is full 3D via fal.ai)")
 
         # Process accessories
         for i, acc_img in enumerate(accessory_imgs):
@@ -2442,8 +2431,8 @@ Requirements:
             "paths": depth_maps
         }
 
-        if not depth_maps.get("figure"):
-            error_msg = "No figure depth map generated - cannot continue"
+        if not depth_maps:
+            error_msg = "No accessory depth maps generated - cannot continue"
             logger.error(f"   ❌ {error_msg}")
             results["errors"].append(error_msg)
             return results
@@ -2458,7 +2447,7 @@ Requirements:
         blender_output_dir = os.path.join(job_dir, "final_output")
         os.makedirs(blender_output_dir, exist_ok=True)
 
-        # Build Blender command
+        # Build Blender command — no figure depth/img (figure is full 3D via fal.ai)
         blender_script = "/workspace/SimpleMe/services/blender_starter_pack.py"
 
         blender_cmd = [
@@ -2466,8 +2455,6 @@ Requirements:
             "--background",
             "--python", blender_script,
             "--",
-            "--figure_depth", depth_maps.get("figure", ""),
-            "--figure_img", figure_img.get("file_path", ""),
             "--output_dir", blender_output_dir,
             "--job_id", job_id,
             "--title", title,
@@ -2677,29 +2664,8 @@ async def resume_starter_pack_pipeline(
         sculptok_output_dir = os.path.join(job_dir, "sculptok_output")
         os.makedirs(sculptok_output_dir, exist_ok=True)
 
-        # Process figure
-        logger.info(f"\n   Processing figure depth map...")
-        figure_sculptok_dir = os.path.join(sculptok_output_dir, "base_character")
-        os.makedirs(figure_sculptok_dir, exist_ok=True)
-
-        figure_depth_result = await sculptok_client.process_image_to_depth_map(
-            image_path=figure_img_path,
-            output_dir=figure_sculptok_dir,
-            image_name="base_character",
-            skip_bg_removal=True,
-            style="pro",
-            version="1.5",
-            draw_hd="4k",
-            ext_info="16bit"
-        )
-
-        if figure_depth_result.get("success"):
-            depth_maps["figure"] = figure_depth_result.get("outputs", {}).get("depth_image")
-            logger.info(f"   ✅ Figure depth map: {depth_maps['figure']}")
-        else:
-            error_msg = f"Figure depth map failed: {figure_depth_result.get('error')}"
-            logger.error(f"   ❌ {error_msg}")
-            results["errors"].append(error_msg)
+        # Figure depth map is no longer needed — figure is full 3D via fal.ai, placed by PrintMaker
+        logger.info(f"\n   Skipping figure depth map (figure is full 3D via fal.ai)")
 
         # Process accessories
         for i, acc_img_path in enumerate(accessory_img_paths[:3]):  # Max 3 accessories
@@ -2734,8 +2700,8 @@ async def resume_starter_pack_pipeline(
             "paths": depth_maps
         }
 
-        if not depth_maps.get("figure"):
-            results["errors"].append("No figure depth map - cannot continue")
+        if not depth_maps:
+            results["errors"].append("No accessory depth maps generated - cannot continue")
             return results
 
         # ============================================================
@@ -2748,12 +2714,11 @@ async def resume_starter_pack_pipeline(
         blender_output_dir = os.path.join(job_dir, "final_output")
         os.makedirs(blender_output_dir, exist_ok=True)
 
+        # No figure depth/img — figure is full 3D via fal.ai, placed by PrintMaker
         blender_script = "/workspace/SimpleMe/services/blender_starter_pack.py"
 
         blender_cmd = [
             "blender", "--background", "--python", blender_script, "--",
-            "--figure_depth", depth_maps.get("figure", ""),
-            "--figure_img", figure_img_path,
             "--output_dir", blender_output_dir,
             "--job_id", job_id,
             "--title", title,

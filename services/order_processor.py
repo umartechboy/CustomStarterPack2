@@ -79,7 +79,7 @@ class OrderProcessor:
 
         Args:
             job_id: The job ID to retry
-            from_step: Step number to resume from (1-6)
+            from_step: Step number to resume from (1-7)
             order_data: Optional order data (if not provided, loads from DB)
 
         Returns:
@@ -228,12 +228,8 @@ class OrderProcessor:
         return figure_img, accessory_imgs
 
     def _find_depth_maps(self, job_dir: str) -> Dict:
-        """Find existing depth maps in job directory"""
+        """Find existing depth maps in job directory (accessories only — figure is full 3D via fal.ai)"""
         depth_maps = {}
-
-        figure_depth = os.path.join(job_dir, "figure_depth.png")
-        if os.path.exists(figure_depth):
-            depth_maps["figure"] = figure_depth
 
         for i in range(1, 4):
             acc_depth = os.path.join(job_dir, f"accessory_{i}_depth.png")
@@ -422,27 +418,9 @@ Make it visually interesting but not too busy - it should complement, not overwh
             if from_step <= 4:
                 logger.info(f"[ORDER {job_id}] Step 4: Depth Map Generation")
 
-                # Use nobg images for depth maps (cleaner edges)
-                figure_depth_img = figure_img.get("nobg_path") or figure_img.get("file_path")
-                logger.info(f"[ORDER {job_id}] Using for depth map: {figure_depth_img}")
-
-                # Figure depth map (skip_bg_removal=True since we already did it)
-                figure_depth_result = await self._sculptok_client.process_image_to_depth_map(
-                    image_path=figure_depth_img,
-                    output_dir=job_dir,
-                    image_name="figure",
-                    skip_bg_removal=True,  # Already removed background
-                    style="pro",
-                    version="1.5",
-                    draw_hd="4k",
-                    ext_info="16bit"
-                )
-
-                if figure_depth_result.get("success"):
-                    depth_maps["figure"] = figure_depth_result.get("outputs", {}).get("depth_image")
-                    logger.info(f"[ORDER {job_id}] Figure depth map generated")
-                else:
-                    raise Exception(f"Figure depth map failed: {figure_depth_result.get('error')}")
+                # Figure depth map is no longer needed — figure is generated as full 3D via fal.ai
+                # and placed by PrintMaker. Only accessories need Sculptok depth maps.
+                logger.info(f"[ORDER {job_id}] Skipping figure depth map (figure is full 3D via fal.ai)")
 
                 # Accessory depth maps (skip_bg_removal=True since we already did it)
                 for i, acc_img in enumerate(accessory_imgs):
@@ -470,21 +448,114 @@ Make it visually interesting but not too busy - it should complement, not overwh
                 # Save state after step 4
                 self._save_step_state(job_dir, 4, {"depth_maps": depth_maps})
             else:
-                # Load existing depth maps
+                # Load existing depth maps (accessories only — figure is full 3D via fal.ai)
                 logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 4 - Loading existing depth maps")
                 depth_maps = self._find_depth_maps(job_dir)
-                if "figure" not in depth_maps:
-                    raise Exception("No existing figure depth map found for retry")
-                logger.info(f"[ORDER {job_id}] Found {len(depth_maps)} depth maps")
+                logger.info(f"[ORDER {job_id}] Found {len(depth_maps)} accessory depth maps")
 
             # ============================================================
-            # STEP 5: Run Blender to create STL + texture
+            # STEP 5: Blender 2.5D card (depth map displacement)
             # ============================================================
             output_dir = os.path.join(job_dir, "final_output")
             os.makedirs(output_dir, exist_ok=True)
 
             if from_step <= 5:
-                logger.info(f"[ORDER {job_id}] Step 5: PrintMaker Processing")
+                logger.info(f"[ORDER {job_id}] Step 5: Blender 2.5D Processing")
+
+                blender_script = os.path.join(os.path.dirname(__file__), "blender_starter_pack.py")
+
+                # Build Blender command
+                blender_cmd = [
+                    "blender", "--background", "--python", blender_script, "--"
+                ]
+
+                # Figure is handled as full 3D by PrintMaker (via fal.ai GLB), not as 2.5D depth relief.
+                # Do NOT pass --figure_img or --figure_depth to Blender — the figure slot stays flat.
+
+                # Add accessories
+                for i, acc_img in enumerate(accessory_imgs):
+                    acc_num = i + 1
+                    acc_name = f"accessory_{acc_num}"
+                    if acc_name in depth_maps and acc_num <= 3:
+                        acc_texture_img = acc_img.get("original_path") or acc_img.get("file_path")
+                        blender_cmd.extend([
+                            f"--acc{acc_num}_img", acc_texture_img,
+                            f"--acc{acc_num}_depth", depth_maps[acc_name]
+                        ])
+
+                blender_cmd.extend([
+                    "--title", order_data.get("title", ""),
+                    "--subtitle", order_data.get("subtitle", ""),
+                    "--text_color", order_data.get("text_color", "red"),
+                    "--background_type", background_type,
+                    "--background_color", background_color,
+                ])
+
+                if background_image_path:
+                    blender_cmd.extend(["--background_image", background_image_path])
+
+                blender_cmd.extend([
+                    "--output_dir", output_dir,
+                    "--job_id", job_id
+                ])
+
+                logger.info(f"[ORDER {job_id}] Running Blender 2.5D...")
+                blender_proc = subprocess.Popen(
+                    blender_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+                def _stream_blender_stderr(proc, jid):
+                    for line in proc.stderr:
+                        logger.warning(f"[ORDER {jid}] [Blender:err] {line.rstrip()}")
+
+                blender_stderr_thread = threading.Thread(target=_stream_blender_stderr, args=(blender_proc, job_id), daemon=True)
+                blender_stderr_thread.start()
+
+                for line in blender_proc.stdout:
+                    logger.info(f"[ORDER {job_id}] [Blender] {line.rstrip()}")
+
+                blender_proc.wait(timeout=600)
+                blender_stderr_thread.join(timeout=5)
+
+                if blender_proc.returncode == 0:
+                    stl_25d = os.path.join(output_dir, f"{job_id}.stl")
+                    texture_25d = os.path.join(output_dir, f"{job_id}_texture.png")
+                    blend_25d = os.path.join(output_dir, f"{job_id}.blend")
+
+                    if os.path.exists(stl_25d):
+                        outputs["stl_25d"] = stl_25d
+                        outputs["stl_25d_url"] = f"/storage/test_starter_pack/{job_id}/final_output/{job_id}.stl"
+                    if os.path.exists(texture_25d):
+                        outputs["texture"] = texture_25d
+                        outputs["texture_url"] = f"/storage/test_starter_pack/{job_id}/final_output/{job_id}_texture.png"
+                    if os.path.exists(blend_25d):
+                        outputs["blend_25d"] = blend_25d
+                        outputs["blend_25d_url"] = f"/storage/test_starter_pack/{job_id}/final_output/{job_id}.blend"
+
+                    logger.info(f"[ORDER {job_id}] Blender 2.5D completed successfully")
+                    self._save_step_state(job_dir, 5, {"stl_25d": str(stl_25d), "texture": str(texture_25d)})
+                else:
+                    raise Exception(f"Blender 2.5D failed with return code {blender_proc.returncode}")
+            else:
+                logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 5 - Loading existing Blender outputs")
+                stl_25d = os.path.join(output_dir, f"{job_id}.stl")
+                texture_25d = os.path.join(output_dir, f"{job_id}_texture.png")
+
+                if os.path.exists(stl_25d):
+                    outputs["stl_25d"] = stl_25d
+                    outputs["stl_25d_url"] = f"/storage/test_starter_pack/{job_id}/final_output/{job_id}.stl"
+                if os.path.exists(texture_25d):
+                    outputs["texture"] = texture_25d
+                    outputs["texture_url"] = f"/storage/test_starter_pack/{job_id}/final_output/{job_id}_texture.png"
+
+            # ============================================================
+            # STEP 6: PrintMaker (figure STL, jigs, printing assets)
+            # ============================================================
+            if from_step <= 6:
+                logger.info(f"[ORDER {job_id}] Step 6: PrintMaker Processing")
 
                 # Set up PrintMaker job directories
                 pm_workdir = settings.PRINTMAKER_WORKDIR
@@ -523,18 +594,18 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     cwd=pm_workdir,
                 )
 
-                def _stream_stderr(proc, jid):
+                def _stream_pm_stderr(proc, jid):
                     for line in proc.stderr:
                         logger.warning(f"[ORDER {jid}] [PrintMaker:err] {line.rstrip()}")
 
-                stderr_thread = threading.Thread(target=_stream_stderr, args=(pm_proc, job_id), daemon=True)
-                stderr_thread.start()
+                pm_stderr_thread = threading.Thread(target=_stream_pm_stderr, args=(pm_proc, job_id), daemon=True)
+                pm_stderr_thread.start()
 
                 for line in pm_proc.stdout:
                     logger.info(f"[ORDER {job_id}] [PrintMaker] {line.rstrip()}")
 
                 pm_proc.wait(timeout=settings.PRINTMAKER_TIMEOUT)
-                stderr_thread.join(timeout=5)
+                pm_stderr_thread.join(timeout=5)
 
                 if pm_proc.returncode == 0:
                     logger.info(f"[ORDER {job_id}] PrintMaker completed successfully")
@@ -580,8 +651,7 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     logger.error(f"[ORDER {job_id}] PrintMaker failed with return code {pm_proc.returncode}")
                     raise Exception(f"PrintMaker failed with return code {pm_proc.returncode}")
             else:
-                # Skipping step 5 - load existing outputs for step 6 retry
-                logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 5 - Loading existing outputs")
+                logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 6 - Loading existing PrintMaker outputs")
                 card_stl = os.path.join(output_dir, "card_model.stl")
                 card_main = os.path.join(output_dir, "card_main.png")
 
@@ -591,14 +661,12 @@ Make it visually interesting but not too busy - it should complement, not overwh
                 if os.path.exists(card_main):
                     outputs["texture"] = card_main
                     outputs["texture_url"] = f"/storage/test_starter_pack/{job_id}/final_output/card_main.png"
-                else:
-                    raise Exception("No existing texture found for sticker generation")
 
             # ============================================================
-            # STEP 6: Generate stickers (front and back)
+            # STEP 7: Generate stickers (front and back)
             # ============================================================
             if outputs.get("texture"):
-                logger.info(f"[ORDER {job_id}] Step 6: Sticker Generation")
+                logger.info(f"[ORDER {job_id}] Step 7: Sticker Generation")
 
                 from services.sticker_generator import generate_stickers
 
