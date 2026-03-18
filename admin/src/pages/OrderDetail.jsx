@@ -470,38 +470,37 @@ export default function OrderDetail() {
 
           {/* ---- 2.1 Card ---- */}
           <h3 style={{ margin: '24px 0 12px', color: '#334155', fontSize: '18px' }}>Card</h3>
-          <div className="download-grid">
-            {files?.outputs?.stl_25d && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.stl_25d, `${order.job_id}_card.stl`)}>
-                <div className="download-icon stl">STL</div>
-                <div className="download-info">
-                  <span className="download-title">Card STL (2.5D)</span>
-                  <span className="download-desc">Depth-displaced card with accessories</span>
+          {(files?.outputs?.stl_25d || files?.outputs?.texture_25d) ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+              <div className="jig-side-card">
+                <div className="jig-side-header">2.5D Card</div>
+                {files?.outputs?.texture_25d && (
+                  <div className="jig-side-thumb">
+                    <img src={`${API_BASE_URL}${files.outputs.texture_25d}`} alt="Card Texture" />
+                  </div>
+                )}
+                <div className="jig-side-actions">
+                  {files?.outputs?.stl_25d && (
+                    <button className="btn btn-small" onClick={() => downloadFile(files.outputs.stl_25d, `${order.job_id}_card.stl`)}>
+                      <Download size={14} /> STL
+                    </button>
+                  )}
+                  {files?.outputs?.texture_25d && (
+                    <button className="btn btn-small" onClick={() => downloadFile(files.outputs.texture_25d, `${order.job_id}_card_texture.png`)} style={{ background: '#f59e0b' }}>
+                      <Download size={14} /> PNG
+                    </button>
+                  )}
+                  {showAdvanced && files?.outputs?.blend_25d && (
+                    <button className="btn btn-small" onClick={() => downloadFile(files.outputs.blend_25d, `${order.job_id}_card.blend`)} style={{ background: '#f59e0b' }}>
+                      <Download size={14} /> BLEND
+                    </button>
+                  )}
                 </div>
-                <Download size={20} />
-              </button>
-            )}
-            {files?.outputs?.texture_25d && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.texture_25d, `${order.job_id}_card_texture.png`)}>
-                <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
-                <div className="download-info">
-                  <span className="download-title">Card Texture</span>
-                  <span className="download-desc">UV print texture for card</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-            {showAdvanced && files?.outputs?.blend_25d && (
-              <button className="download-card" onClick={() => downloadFile(files.outputs.blend_25d, `${order.job_id}_card.blend`)}>
-                <div className="download-icon blend">BLEND</div>
-                <div className="download-info">
-                  <span className="download-title">Card Blend File <span className="advanced-badge">Advanced</span></span>
-                  <span className="download-desc">Blender source for card</span>
-                </div>
-                <Download size={20} />
-              </button>
-            )}
-          </div>
+              </div>
+            </div>
+          ) : (
+            <p className="empty-text">No card files yet</p>
+          )}
 
           {/* ---- 2.2 Figure ---- */}
           <h3 style={{ margin: '32px 0 12px', color: '#334155', fontSize: '18px' }}>Figure</h3>
@@ -532,62 +531,56 @@ export default function OrderDetail() {
           {files?.outputs?.card?.jigs?.length > 0 && (() => {
             const variant = files.outputs.card
             const axes = ['X', 'Y', 'Z']
-            const grouped = {}
+            // Build per-side lookup maps
+            const printMap = {}; (variant.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
+            const refMap = {}; (variant.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
+            const cutMap = {}; (variant.cutting_files || []).forEach(c => { cutMap[c.side] = c })
+            const sides = {}
             axes.forEach(ax => {
-              grouped[ax] = {
-                jigs: variant.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                prints: (variant.printing_files || []).filter(p => p.side.endsWith(ax) && p.type !== 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                refs: (variant.printing_files || []).filter(p => p.side.endsWith(ax) && p.type === 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                cuts: (variant.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-              }
+              sides[ax] = variant.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
             })
             return (
               <>
                 <h4 style={{ margin: '24px 0 12px', color: '#475569', fontSize: '15px' }}>Jigs</h4>
-                {axes.filter(ax => grouped[ax].jigs.length > 0).map(ax => (
+                {axes.filter(ax => sides[ax].length > 0).map(ax => (
                   <div key={ax} style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
-                    <div className="download-grid">
-                      {grouped[ax].jigs.map(jig => (
-                        <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
-                          <div className="download-icon stl">{jig.side}</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {jig.side} STL</span>
-                            <span className="download-desc">Fixture for {jig.side} side</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {sides[ax].map(jig => {
+                        const print = printMap[jig.side]
+                        const ref = refMap[jig.side]
+                        const cut = cutMap[jig.side]
+                        return (
+                          <div key={jig.side} className="jig-side-card">
+                            <div className="jig-side-header">{jig.side}</div>
+                            {print && (
+                              <div className="jig-side-thumb">
+                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${jig.side}`} />
+                              </div>
+                            )}
+                            <div className="jig-side-actions">
+                              <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
+                                <Download size={14} /> STL
+                              </button>
+                              {print && (
+                                <button className="btn btn-small" onClick={() => downloadFile(print.url, print.name)} style={{ background: '#f59e0b' }}>
+                                  <Download size={14} /> PNG
+                                </button>
+                              )}
+                              {showAdvanced && ref && (
+                                <button className="btn btn-small" onClick={() => downloadFile(ref.url, ref.name)} style={{ background: '#64748b' }}>
+                                  <Download size={14} /> REF
+                                </button>
+                              )}
+                              {showAdvanced && cut && (
+                                <button className="btn btn-small" onClick={() => downloadFile(cut.url, cut.name)} style={{ background: '#ef4444' }}>
+                                  <Download size={14} /> DXF
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {grouped[ax].prints.map((pf, i) => (
-                        <button key={`prt-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                          <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {pf.side} Print</span>
-                            <span className="download-desc">Print-ready image</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {showAdvanced && grouped[ax].refs.map((pf, i) => (
-                        <button key={`ref-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                          <div className="download-icon png" style={{ background: '#64748b' }}>REF</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {pf.side} Reference <span className="advanced-badge">Advanced</span></span>
-                            <span className="download-desc">Reference overlay</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {showAdvanced && grouped[ax].cuts.map((cf, i) => (
-                        <button key={`cut-${i}`} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
-                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {cf.side} Cutting <span className="advanced-badge">Advanced</span></span>
-                            <span className="download-desc">DXF cutting path</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
@@ -611,14 +604,12 @@ export default function OrderDetail() {
           {showKeychain && files?.outputs?.keychain?.jigs?.length > 0 && (() => {
             const kc = files.outputs.keychain
             const axes = ['X', 'Y', 'Z']
-            const grouped = {}
+            const printMap = {}; (kc.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
+            const refMap = {}; (kc.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
+            const cutMap = {}; (kc.cutting_files || []).forEach(c => { cutMap[c.side] = c })
+            const sides = {}
             axes.forEach(ax => {
-              grouped[ax] = {
-                jigs: kc.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                prints: (kc.printing_files || []).filter(p => p.side.endsWith(ax) && p.type !== 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                refs: (kc.printing_files || []).filter(p => p.side.endsWith(ax) && p.type === 'reference').sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-                cuts: (kc.cutting_files || []).filter(c => c.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1),
-              }
+              sides[ax] = kc.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
             })
             return (
               <>
@@ -636,50 +627,45 @@ export default function OrderDetail() {
                   )}
                 </div>
                 <h4 style={{ margin: '24px 0 12px', color: '#475569', fontSize: '15px' }}>Keychain Jigs</h4>
-                {axes.filter(ax => grouped[ax].jigs.length > 0).map(ax => (
+                {axes.filter(ax => sides[ax].length > 0).map(ax => (
                   <div key={ax} style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
-                    <div className="download-grid">
-                      {grouped[ax].jigs.map(jig => (
-                        <button key={jig.side} className="download-card" onClick={() => downloadFile(jig.url, jig.name)}>
-                          <div className="download-icon stl">{jig.side}</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {jig.side} STL</span>
-                            <span className="download-desc">Fixture for {jig.side} side</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {sides[ax].map(jig => {
+                        const print = printMap[jig.side]
+                        const ref = refMap[jig.side]
+                        const cut = cutMap[jig.side]
+                        return (
+                          <div key={jig.side} className="jig-side-card">
+                            <div className="jig-side-header">{jig.side}</div>
+                            {print && (
+                              <div className="jig-side-thumb">
+                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${jig.side}`} />
+                              </div>
+                            )}
+                            <div className="jig-side-actions">
+                              <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
+                                <Download size={14} /> STL
+                              </button>
+                              {print && (
+                                <button className="btn btn-small" onClick={() => downloadFile(print.url, print.name)} style={{ background: '#f59e0b' }}>
+                                  <Download size={14} /> PNG
+                                </button>
+                              )}
+                              {showAdvanced && ref && (
+                                <button className="btn btn-small" onClick={() => downloadFile(ref.url, ref.name)} style={{ background: '#64748b' }}>
+                                  <Download size={14} /> REF
+                                </button>
+                              )}
+                              {showAdvanced && cut && (
+                                <button className="btn btn-small" onClick={() => downloadFile(cut.url, cut.name)} style={{ background: '#ef4444' }}>
+                                  <Download size={14} /> DXF
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {grouped[ax].prints.map((pf, i) => (
-                        <button key={`prt-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                          <div className="download-icon png" style={{ background: '#f59e0b' }}>PNG</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {pf.side} Print</span>
-                            <span className="download-desc">Print-ready image</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {showAdvanced && grouped[ax].refs.map((pf, i) => (
-                        <button key={`ref-${i}`} className="download-card" onClick={() => downloadFile(pf.url, pf.name)}>
-                          <div className="download-icon png" style={{ background: '#64748b' }}>REF</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {pf.side} Reference <span className="advanced-badge">Advanced</span></span>
-                            <span className="download-desc">Reference overlay</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
-                      {showAdvanced && grouped[ax].cuts.map((cf, i) => (
-                        <button key={`cut-${i}`} className="download-card" onClick={() => downloadFile(cf.url, cf.name)}>
-                          <div className="download-icon" style={{ background: '#ef4444', color: 'white' }}>DXF</div>
-                          <div className="download-info">
-                            <span className="download-title">Jig {cf.side} Cutting <span className="advanced-badge">Advanced</span></span>
-                            <span className="download-desc">DXF cutting path</span>
-                          </div>
-                          <Download size={20} />
-                        </button>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
