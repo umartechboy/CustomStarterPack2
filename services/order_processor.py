@@ -416,11 +416,28 @@ Make it visually interesting but not too busy - it should complement, not overwh
             # STEP 4: Generate depth maps with Sculptok
             # ============================================================
             if from_step <= 4:
-                logger.info(f"[ORDER {job_id}] Step 4: Depth Map Generation")
+                logger.info(f"[ORDER {job_id}] Step 4: 3D Generation + Depth Maps")
 
-                # Figure depth map is no longer needed — figure is generated as full 3D via fal.ai
-                # and placed by PrintMaker. Only accessories need Sculptok depth maps.
-                logger.info(f"[ORDER {job_id}] Skipping figure depth map (figure is full 3D via fal.ai)")
+                # 4a: Generate figure GLB via fal.ai
+                figure_glb_path = os.path.join(job_dir, "base_character_3d.glb")
+                if os.path.exists(figure_glb_path):
+                    logger.info(f"[ORDER {job_id}] [SKIP] Figure GLB already exists at {figure_glb_path}")
+                elif self._fal_client:
+                    figure_img_path = figure_img.get("original_path") or figure_img.get("file_path")
+                    logger.info(f"[ORDER {job_id}] Generating figure 3D via fal.ai from {figure_img_path}")
+                    fal_result = await self._fal_client.generate_3d_from_local_image(
+                        image_path=figure_img_path,
+                        output_path=figure_glb_path,
+                    )
+                    if fal_result.get("success"):
+                        logger.info(f"[ORDER {job_id}] Figure GLB generated: {figure_glb_path}")
+                    else:
+                        raise Exception(f"fal.ai figure 3D generation failed: {fal_result.get('error')}")
+                else:
+                    raise Exception("No fal.ai client configured and no existing figure GLB found")
+
+                # 4b: Accessory depth maps via Sculptok
+                logger.info(f"[ORDER {job_id}] Generating accessory depth maps via Sculptok")
 
                 # Accessory depth maps (skip_bg_removal=True since we already did it)
                 for i, acc_img in enumerate(accessory_imgs):
@@ -446,10 +463,13 @@ Make it visually interesting but not too busy - it should complement, not overwh
                         errors.append(f"{acc_name} depth map failed")
 
                 # Save state after step 4
-                self._save_step_state(job_dir, 4, {"depth_maps": depth_maps})
+                self._save_step_state(job_dir, 4, {"depth_maps": depth_maps, "figure_glb": figure_glb_path})
             else:
-                # Load existing depth maps (accessories only — figure is full 3D via fal.ai)
-                logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 4 - Loading existing depth maps")
+                # Load existing assets
+                logger.info(f"[ORDER {job_id}] ⏭️ Skipping Step 4 - Loading existing assets")
+                figure_glb_path = os.path.join(job_dir, "base_character_3d.glb")
+                if not os.path.exists(figure_glb_path):
+                    logger.warning(f"[ORDER {job_id}] ⚠️ Figure GLB not found at {figure_glb_path}")
                 depth_maps = self._find_depth_maps(job_dir)
                 logger.info(f"[ORDER {job_id}] Found {len(depth_maps)} accessory depth maps")
 
