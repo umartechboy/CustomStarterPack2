@@ -52,7 +52,10 @@ public sealed class BlenderLayoutRunner
         double OverlapY = 5.0,
         double OverlapZ = 5.0,
         double InflationMargin = 0.4,
-        double GridHeight = 50.0
+        double GridHeight = 50.0,
+        double FigureTrimPercent = 0.1,
+        double FigureHoleDiameter = 3.0,
+        double FigureHoleLength = 5.0
     )
     {
         public int RenderResx { get; internal set; }
@@ -211,7 +214,7 @@ public sealed class BlenderLayoutRunner
         var maxZ = tris.Max(t => t.Z.Max());
         var lowestTris = tris.FindAll(t => t.Y.Min() <= minY + (maxY - minY) * 0.1);
         var avgZ = lowestTris.SelectMany(t => t.Z).Average();
-        var yProp = avgZ / (maxZ - minZ);
+        var zProp = avgZ / (maxZ - minZ);
 
 
 
@@ -235,14 +238,17 @@ public sealed class BlenderLayoutRunner
                     "--overlap_z", opt.OverlapZ.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--inflation_margin", opt.InflationMargin.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    "--holes_y_prop", yProp.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    "--holes_spacing", opt.HolesSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    "--holes_z_prop", zProp.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--holes_spacing", opt.HolesSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--trim_percent", opt.FigureTrimPercent.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--hole_diameter", opt.FigureHoleDiameter.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--hole_length", opt.FigureHoleLength.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 };
 
                 var jigPsi = new ProcessStartInfo
                 {
                     FileName = "python",
-                    Arguments = string.Join(" ", jigArgs),
+                    Arguments = "-u " + string.Join(" ", jigArgs),
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

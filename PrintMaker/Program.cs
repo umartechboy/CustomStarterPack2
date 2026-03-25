@@ -82,12 +82,6 @@ class Program
             float cuttingMargin_mm = 0.0f;         // --cut_margin_mm
             int cutSmoothing_px = 5;
 
-            if (isDebug)
-            {
-                workingDir = "";
-                jobID = "001";
-            }
-
             //// If no args or null -> help
             //if (args == null || args.Length == 0)
             //    return PrintHelp("No arguments provided.");
@@ -304,7 +298,7 @@ class Program
 
         string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
         bool skipRender = BlenderRenderOutputsExist(inDir, outDir, nameSeed);
-        bool skipJigs = JigOutputsExist(outDir, nameSeed, jigSides);
+        bool skipJigs = JigOutputsExist(outDir, nameSeed, jigSides) && false;
         if (skipRender) Console.WriteLine($"[SKIP] Blender render outputs already exist for {nameSeed}");
         if (skipJigs) Console.WriteLine($"[SKIP] Jig outputs already exist for {nameSeed}");
 
@@ -338,13 +332,16 @@ class Program
         Subtitle: subtitle,
         renderResx: renderResx,
         renderResy: renderResy,
-        JigsRequested: "+Z,-Z,+X,-X,+Y,-Y",
+        JigsRequested: "+Z",
         OverlapX: 25.0,
         OverlapY: 8.0,
         OverlapZ: 25.0,
         InflationMargin: 0.4,
-        GridHeight: 50.0
-    )
+        GridHeight: 50.0,
+        FigureTrimPercent: 0.1,
+        FigureHoleDiameter: 3.0,
+        FigureHoleLength: 5.0
+    ) { HolesSpacing = 20.0f }
 );
         string jigsMetaPath = Path.Combine(outDir, $"{nameSeed}_jigs_meta.json");
         if (File.Exists(jigsMetaPath) && !layoutOnly)

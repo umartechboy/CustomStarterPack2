@@ -245,6 +245,11 @@ if __name__ == "__main__":
     parser.add_argument("--overlap_z", type=float, default=5.0)
     parser.add_argument("--inflation_margin", type=float, default=0.4)
     parser.add_argument("--grid_height", type=float, default=50.0)
+    parser.add_argument("--holes_z_prop", type=float, default=0.0)
+    parser.add_argument("--holes_spacing", type=float, default=10.0)
+    parser.add_argument("--trim_percent", type=float, default=0.1)
+    parser.add_argument("--hole_diameter", type=float, default=3.0)
+    parser.add_argument("--hole_length", type=float, default=5.0)
 
     args = parser.parse_args(argv)
 
@@ -298,33 +303,115 @@ if __name__ == "__main__":
         directions = ['+Z', '-Z', '+X', '-X', '+Y', '-Y']
 
     print(f"[PROCESS] Creating {len(directions)} jigs: {directions}")
-    for d in directions:
-        print(f"   -> Starting generation for {d}...")
-        final_jig = generate_jig_in_place(
-            raw_model=raw_model,
-            master_min=master_min,
-            master_max=master_max,
-            overlap=OVERLAP_Z,
-            bottom_thickness=BOTTOM_THICKNESS,
-            inflation=args.inflation_margin,
-            direction=d
-        )
+    #for d in directions:
+        #print(f"   -> Starting generation for {d}...")
+        #final_jig = generate_jig_in_place(
+        #    raw_model=raw_model,
+        #    master_min=master_min,
+        #    master_max=master_max,
+        #    overlap=OVERLAP_Z,
+        #    bottom_thickness=BOTTOM_THICKNESS,
+        #    inflation=args.inflation_margin,
+        #    direction=d
+        #)
         
-        # Export each individual jig STL
-        bpy.ops.object.select_all(action='DESELECT')
-        final_jig.select_set(True)
-        bpy.context.view_layer.objects.active = final_jig
-        stl_path = os.path.join(args.output_dir, f"{args.model_name_seed}_jig_{d}.stl")
+        ## Export each individual jig STL
+        #bpy.ops.object.select_all(action='DESELECT')
+        #final_jig.select_set(True)
+        #bpy.context.view_layer.objects.active = final_jig
+        #stl_path = os.path.join(args.output_dir, f"{args.model_name_seed}_jig_{d}.stl")
         
-        try:
-            bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True)
-        except Exception as e:
-            print(f"      [WARN] Standard STL export failed: {e}. Falling back to binary writer...")
-            _write_binary_stl_all(stl_path, final_jig)
-        print(f"   -> Completed generation for {d}")
+        #try:
+        #    bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True)
+        #except Exception as e:
+        #    print(f"      [WARN] Standard STL export failed: {e}. Falling back to binary writer...")
+        #    _write_binary_stl_all(stl_path, final_jig)
+        #print(f"   -> Completed generation for {d}")
 
-    print("[PROCESS] Exporting RAW Base Figure...")
-    # 6. Export the RAW Base Figure
+    print("[PROCESS] Processing figure mesh (trim + holes)...")
+
+    # 6a. Trim Y+ face: remove trim_percent of model from Y+ direction
+    bbox = [raw_model.matrix_world @ mathutils.Vector(b) for b in raw_model.bound_box]
+    mod_min_x = min(b.x for b in bbox)
+    mod_max_x = max(b.x for b in bbox)
+    mod_min_y = min(b.y for b in bbox)
+    mod_max_y = max(b.y for b in bbox)
+    mod_min_z = min(b.z for b in bbox)
+    mod_max_z = max(b.z for b in bbox)
+
+    print(f"[INFO] Figure bounds: X[{mod_min_x:.2f}, {mod_max_x:.2f}] Y[{mod_min_y:.2f}, {mod_max_y:.2f}] Z[{mod_min_z:.2f}, {mod_max_z:.2f}]")
+
+    if args.trim_percent > 0:
+        bpy.ops.object.select_all(action='DESELECT')
+        raw_model.select_set(True)
+        bpy.context.view_layer.objects.active = raw_model
+
+        y_extent = mod_max_y - mod_min_y
+        trim_depth = y_extent * args.trim_percent
+        margin = 1.0
+
+        trim_box = create_box("TrimBox_Y",
+            (mod_min_x - margin, mod_max_y - trim_depth, mod_min_z - margin),
+            (mod_max_x + margin, mod_max_y + margin, mod_max_z + margin))
+
+        # TODO: Boolean disabled for debugging — trim_box kept in scene
+        bpy.context.view_layer.objects.active = raw_model
+        trim_mod = raw_model.modifiers.new(type="BOOLEAN", name="TrimY")
+        trim_mod.object = trim_box
+        trim_mod.operation = 'DIFFERENCE'
+        trim_mod.solver = 'EXACT'
+        bpy.ops.object.modifier_apply(modifier=trim_mod.name)
+        bpy.data.objects.remove(trim_box, do_unlink=True)
+
+        flat_y = mod_max_y - trim_depth
+        print(f"[INFO] Trim box created (boolean disabled). flat_y={flat_y:.2f}")
+    else:
+        flat_y = mod_max_y
+
+    # 6b. Create two mounting hole cylinders on the flat Y+ face at z_prop height
+    if args.holes_z_prop > 0 and args.holes_spacing > 0:
+        bbox = [raw_model.matrix_world @ mathutils.Vector(b) for b in raw_model.bound_box]
+        mod_min_x = min(b.x for b in bbox)
+        mod_max_x = max(b.x for b in bbox)
+        mod_min_z = min(b.z for b in bbox)
+        mod_max_z = max(b.z for b in bbox)
+
+        center_x = (mod_min_x + mod_max_x) / 2.0
+        center_z = (mod_min_z + mod_max_z) / 2.0
+        hole_z = center_z + args.holes_z_prop * (mod_max_z - mod_min_z)
+        radius = args.hole_diameter / 2.0
+        half_spacing = args.holes_spacing / 2.0
+
+        overshoot = 1.0  # extend cylinder past flat face to avoid co-planar issues
+        actual_depth = args.hole_length + overshoot
+
+        for side, x_offset in [("L", -half_spacing), ("R", +half_spacing)]:
+            hole_x = center_x + x_offset
+            hole_y = flat_y - args.hole_length / 2.0 + overshoot / 2.0  # shift so it pokes out past flat_y
+            print(f"[INFO] Hole {side}: center=({hole_x:.2f}, {hole_y:.2f}, {hole_z:.2f}) r={radius:.2f} depth={actual_depth:.2f}")
+            bpy.ops.mesh.primitive_cylinder_add(
+                vertices=12,
+                radius=radius,
+                depth=actual_depth,
+                location=(hole_x, hole_y, hole_z),
+                rotation=(math.pi / 2, 0, 0)
+            )
+            cyl = bpy.context.active_object
+            cyl.name = f"Hole_{side}"
+
+            bpy.context.view_layer.objects.active = raw_model
+            raw_model.select_set(True)
+            hole_mod = raw_model.modifiers.new(type="BOOLEAN", name=f"Hole_{side}")
+            hole_mod.object = cyl
+            hole_mod.operation = 'DIFFERENCE'
+            hole_mod.solver = 'MANIFOLD'
+            bpy.ops.object.modifier_apply(modifier=hole_mod.name)
+            bpy.data.objects.remove(cyl, do_unlink=True)
+
+        print(f"[INFO] Hole cylinders created (booleans disabled). z_prop={args.holes_z_prop:.3f}, spacing={args.holes_spacing}")
+
+    print("[PROCESS] Exporting Figure STL...")
+    # 6c. Export the processed figure
     bpy.ops.object.select_all(action='DESELECT')
     raw_model.select_set(True)
     bpy.context.view_layer.objects.active = raw_model
