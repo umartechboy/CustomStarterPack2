@@ -593,6 +593,20 @@ Make it visually interesting but not too busy - it should complement, not overwh
                 shutil.copy2(figure_glb_path, pm_figure_path)
                 logger.info(f"[ORDER {job_id}] Copied figure GLB to {pm_figure_path}")
 
+                # Copy 2.5D card STL to PrintMaker input (for hole punching)
+                stl_25d_src = os.path.join(output_dir, f"{job_id}.stl")
+                if os.path.exists(stl_25d_src):
+                    pm_card_stl_path = os.path.join(pm_in_dir, "card_25d.stl")
+                    shutil.copy2(stl_25d_src, pm_card_stl_path)
+                    logger.info(f"[ORDER {job_id}] Copied 2.5D card STL to {pm_card_stl_path}")
+
+                # Copy 2.5D debug dimensions JSON (contains actual card thickness)
+                debug_json_src = os.path.join(output_dir, "debug_dimensions.json")
+                if os.path.exists(debug_json_src):
+                    pm_debug_json_path = os.path.join(pm_in_dir, "card_25d_dimensions.json")
+                    shutil.copy2(debug_json_src, pm_debug_json_path)
+                    logger.info(f"[ORDER {job_id}] Copied 2.5D dimensions JSON to {pm_debug_json_path}")
+
                 # Run PrintMaker executable directly
                 pm_cmd = [
                     settings.PRINTMAKER_EXECUTABLE,

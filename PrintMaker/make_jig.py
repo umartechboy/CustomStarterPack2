@@ -250,6 +250,10 @@ if __name__ == "__main__":
     parser.add_argument("--trim_percent", type=float, default=0.1)
     parser.add_argument("--hole_diameter", type=float, default=3.0)
     parser.add_argument("--hole_length", type=float, default=5.0)
+    parser.add_argument("--card_stl", type=str, default="")
+    parser.add_argument("--layout_json", type=str, default="")
+    parser.add_argument("--magnet_diameter", type=float, default=6.0)
+    parser.add_argument("--magnet_height", type=float, default=3.0)
 
     args = parser.parse_args(argv)
 
@@ -303,30 +307,32 @@ if __name__ == "__main__":
         directions = ['+Z', '-Z', '+X', '-X', '+Y', '-Y']
 
     print(f"[PROCESS] Creating {len(directions)} jigs: {directions}")
-    #for d in directions:
-        #print(f"   -> Starting generation for {d}...")
-        #final_jig = generate_jig_in_place(
-        #    raw_model=raw_model,
-        #    master_min=master_min,
-        #    master_max=master_max,
-        #    overlap=OVERLAP_Z,
-        #    bottom_thickness=BOTTOM_THICKNESS,
-        #    inflation=args.inflation_margin,
-        #    direction=d
-        #)
+    for d in directions:
+        stl_path = os.path.join(args.output_dir, f"{args.model_name_seed}_jig_{d}.stl")
+        if os.path.exists(stl_path):
+            print(f"   -> Skipping {d}, STL already exists: {stl_path}")
+            continue
+        print(f"   -> Starting generation for {d}...")
+        final_jig = generate_jig_in_place(
+            raw_model=raw_model,
+            master_min=master_min,
+            master_max=master_max,
+            overlap=OVERLAP_Z,
+            bottom_thickness=BOTTOM_THICKNESS,
+            inflation=args.inflation_margin,
+            direction=d
+        )
         
-        ## Export each individual jig STL
-        #bpy.ops.object.select_all(action='DESELECT')
-        #final_jig.select_set(True)
-        #bpy.context.view_layer.objects.active = final_jig
-        #stl_path = os.path.join(args.output_dir, f"{args.model_name_seed}_jig_{d}.stl")
-        
-        #try:
-        #    bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True)
-        #except Exception as e:
-        #    print(f"      [WARN] Standard STL export failed: {e}. Falling back to binary writer...")
-        #    _write_binary_stl_all(stl_path, final_jig)
-        #print(f"   -> Completed generation for {d}")
+        # Export each individual jig STL
+        bpy.ops.object.select_all(action='DESELECT')
+        final_jig.select_set(True)
+        bpy.context.view_layer.objects.active = final_jig
+        try:
+            bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True)
+        except Exception as e:
+            print(f"      [WARN] Standard STL export failed: {e}. Falling back to binary writer...")
+            _write_binary_stl_all(stl_path, final_jig)
+        print(f"   -> Completed generation for {d}")
 
     print("[PROCESS] Processing figure mesh (trim + holes)...")
 
@@ -423,8 +429,166 @@ if __name__ == "__main__":
         _write_binary_stl_all(figure_stl_path, raw_model)
     print(f"[OK] Base Figure STL Exported: {figure_stl_path}")
     
+    # ==========================================
+    # 7. CARD 2.5D: Import, position, punch holes, export
+    # ==========================================
+    if args.card_stl and os.path.exists(args.card_stl) and args.layout_json and os.path.exists(args.layout_json):
+        print("[PROCESS] Processing 2.5D card STL...")
+        import json as json_mod
+
+        with open(args.layout_json, 'r') as f:
+            layout = json_mod.load(f)
+
+        # Card dimensions from layout JSON (in mm)
+        card_w = layout["meta"]["card"]["W"]  # e.g. 130
+        card_h = layout["meta"]["card"]["H"]  # e.g. 190
+
+        # Figure slot center on the card (2D layout coords, mm)
+        fsb = layout["meta"]["figure_slot_bounds"]
+        slot_cx_2d = fsb["slot_center"]["x"]  # X offset from card center
+        slot_cy_2d = fsb["slot_center"]["y"]  # Y offset from card center (maps to Z in 3D)
+
+        # In make_jig 3D space:
+        # - Figure is centered at args.slot_center (X, Y, Z)
+        # - Card STL is centered at origin in its own file (XY plane, mm)
+        # - Card X maps to 3D X, Card Y maps to 3D Z, Card thickness is along 3D Y
+        # We need to move the card so that slot_center_2d aligns with the figure's slot_center_3d
+
+        # Import card STL
+        try:
+            bpy.ops.import_mesh.stl(filepath=args.card_stl)
+        except:
+            bpy.ops.wm.stl_import(filepath=args.card_stl)
+        card_obj = bpy.context.selected_objects[0]
+        card_obj.name = "Card_25D"
+        bpy.context.view_layer.objects.active = card_obj
+
+        # Rotate card Pi/2 about X so it faces same direction as figure (XY plane → XZ plane)
+        card_obj.rotation_euler[0] = math.pi / 2
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bbox = [card_obj.matrix_world @ mathutils.Vector(b) for b in card_obj.bound_box]
+        card_cx = (max(b.x for b in bbox) + min(b.x for b in bbox)) / 2.0
+        card_cy = (max(b.y for b in bbox) + min(b.y for b in bbox)) / 2.0
+        card_cz = (max(b.z for b in bbox) + min(b.z for b in bbox)) / 2.0
+
+        print(f"[INFO] Card STL imported. Bounds center: ({card_cx:.2f}, {card_cy:.2f}, {card_cz:.2f})")
+        print(f"[INFO] Layout slot_center_2d: ({slot_cx_2d:.2f}, {slot_cy_2d:.2f})")
+        print(f"[INFO] Figure slot_center_3d: ({args.slot_center[0]:.2f}, {args.slot_center[1]:.2f}, {args.slot_center[2]:.2f})")
+
+        # Card STL is in mm, XY plane. In jig 3D space: card_X → 3D_X, card_Y → 3D_Z, thickness → 3D_Y
+        # The figure slot is at (slot_cx_2d, slot_cy_2d) relative to card center in 2D
+        # In 3D, figure is at args.slot_center
+        # So card center in 3D should be at:
+        #   3D_X = figure_X - slot_cx_2d
+        #   3D_Z = figure_Z - slot_cy_2d
+        #   3D_Y = figure_Y (aligned in depth, card sits behind figure)
+        target_card_cx = args.slot_center[0] - slot_cx_2d
+        target_card_cz = args.slot_center[2] - slot_cy_2d
+        target_card_cy = args.slot_center[1]  # same depth as figure
+
+        # Move card from its current center to target
+        card_obj.location.x += target_card_cx - card_cx
+        card_obj.location.y += target_card_cy - card_cy
+        card_obj.location.z += target_card_cz - card_cz
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+        bbox = [card_obj.matrix_world @ mathutils.Vector(b) for b in card_obj.bound_box]
+        print(f"[INFO] Card repositioned. New center: ({(max(b.x for b in bbox)+min(b.x for b in bbox))/2:.2f}, {(max(b.y for b in bbox)+min(b.y for b in bbox))/2:.2f}, {(max(b.z for b in bbox)+min(b.z for b in bbox))/2:.2f})")
+
+        # Punch holes in the card
+        # The card's flat side (Y+ face) is the same side we trimmed on the figure.
+        # Holes go from Y+ inward (Y- direction), through the full card depth minus 1mm margin.
+        if args.holes_z_prop > 0 and args.holes_spacing > 0:
+            bbox = [card_obj.matrix_world @ mathutils.Vector(b) for b in card_obj.bound_box]
+            card_min_x = min(b.x for b in bbox)
+            card_max_x = max(b.x for b in bbox)
+            card_min_y = min(b.y for b in bbox)
+            card_max_y = max(b.y for b in bbox)
+            card_min_z = min(b.z for b in bbox)
+            card_max_z = max(b.z for b in bbox)
+
+            # Use the figure's hole positions so pins align through both
+            # Figure center X and Z (same as used for figure holes)
+            fig_bbox = [raw_model.matrix_world @ mathutils.Vector(b) for b in raw_model.bound_box]
+            fig_center_x = (min(b.x for b in fig_bbox) + max(b.x for b in fig_bbox)) / 2.0
+            fig_center_z = (min(b.z for b in fig_bbox) + max(b.z for b in fig_bbox)) / 2.0
+            fig_hole_z = fig_center_z + args.holes_z_prop * (max(b.z for b in fig_bbox) - min(b.z for b in fig_bbox))
+
+            card_center_x = fig_center_x  # align with figure holes
+            card_hole_z = fig_hole_z       # same Z height as figure holes
+
+            # Card layout along Y:  Y- [objects][card_base] Y+
+            # Read actual card thickness from 2.5D dimensions JSON if available,
+            # otherwise fall back to 3.0mm
+            card_25d_dims_path = os.path.join(os.path.dirname(args.layout_json), "card_25d_dimensions.json")
+            if os.path.exists(card_25d_dims_path):
+                with open(card_25d_dims_path, 'r') as f:
+                    dims_25d = json_mod.load(f)
+                card_thickness = dims_25d["card"]["constants_mm"]["thickness"]
+                print(f"[INFO] Card thickness from 2.5D dimensions JSON: {card_thickness}mm")
+            else:
+                card_thickness = 3.0
+                print(f"[WARN] 2.5D dimensions JSON not found, using default card thickness: {card_thickness}mm")
+            card_depth_y = card_max_y - card_min_y
+            card_center_y = (card_max_y + card_min_y) / 2.0
+
+            # Cylinder = same thickness as card STL Y dimension, centered on card
+            cyl_length = card_depth_y
+            # Then shift toward Y- by (card_thickness - magnet_height)
+            shift = card_thickness - args.magnet_height
+            cyl_center_y = card_center_y - shift
+            hole_top_y = cyl_center_y + cyl_length / 2.0
+
+            print(f"[INFO] Card depth_y={card_depth_y:.2f}, card_thickness={card_thickness:.1f}, magnet_height={args.magnet_height:.1f}, shift={shift:.1f}")
+            print(f"[INFO] Cyl center_y={cyl_center_y:.2f}, length={cyl_length:.2f}")
+            print(f"[INFO] Hole top at Y={hole_top_y:.2f}, card Y+={card_max_y:.2f}, solid back={card_max_y - hole_top_y:.2f}mm")
+
+            radius = args.magnet_diameter / 2.0
+            half_spacing = args.holes_spacing / 2.0
+
+            print(f"[INFO] Card bounds: X[{card_min_x:.2f},{card_max_x:.2f}] Y[{card_min_y:.2f},{card_max_y:.2f}] Z[{card_min_z:.2f},{card_max_z:.2f}]")
+            print(f"[INFO] Magnet hole: dia={args.magnet_diameter:.2f}, height={args.magnet_height:.2f}, cyl_center_y={cyl_center_y:.2f}")
+
+            for side, x_offset in [("L", -half_spacing), ("R", +half_spacing)]:
+                hole_x = card_center_x + x_offset
+                print(f"[INFO] Card Hole {side}: center=({hole_x:.2f}, {cyl_center_y:.2f}, {card_hole_z:.2f}) r={radius:.2f} length={cyl_length:.2f}")
+                bpy.ops.mesh.primitive_cylinder_add(
+                    vertices=12,
+                    radius=radius,
+                    depth=cyl_length,
+                    location=(hole_x, cyl_center_y, card_hole_z),
+                    rotation=(math.pi / 2, 0, 0)
+                )
+                cyl = bpy.context.active_object
+                cyl.name = f"CardHole_{side}"
+
+                bpy.context.view_layer.objects.active = card_obj
+                card_obj.select_set(True)
+                hole_mod = card_obj.modifiers.new(type="BOOLEAN", name=f"CardHole_{side}")
+                hole_mod.object = cyl
+                hole_mod.operation = 'DIFFERENCE'
+                hole_mod.solver = 'EXACT'
+                bpy.ops.object.modifier_apply(modifier=hole_mod.name)
+                bpy.data.objects.remove(cyl, do_unlink=True)
+
+            print(f"[OK] Punched 2 magnet holes in card (dia={args.magnet_diameter}, height={args.magnet_height})")
+
+        # Export card with holes
+        bpy.ops.object.select_all(action='DESELECT')
+        card_obj.select_set(True)
+        bpy.context.view_layer.objects.active = card_obj
+        card_out_path = os.path.join(args.output_dir, f"{args.model_name_seed}_card_25d.stl")
+        try:
+            bpy.ops.export_mesh.stl(filepath=card_out_path, use_selection=True)
+        except Exception as e:
+            print(f"Standard STL export for card failed: {e}. Falling back to binary writer...")
+            _write_binary_stl_all(card_out_path, card_obj)
+        print(f"[OK] Card 2.5D STL Exported: {card_out_path}")
+    elif args.card_stl:
+        print(f"[WARN] Card STL or layout JSON not found, skipping card processing")
+
     print("[PROCESS] Saving Combined Blend File...")
-    # 7. Save Combined Blend
+    # 8. Save Combined Blend
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUTPUT_PATH)
 

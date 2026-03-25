@@ -55,7 +55,9 @@ public sealed class BlenderLayoutRunner
         double GridHeight = 50.0,
         double FigureTrimPercent = 0.1,
         double FigureHoleDiameter = 3.0,
-        double FigureHoleLength = 5.0
+        double FigureHoleLength = 5.0,
+        double MagnetDiameter = 6.0,
+        double MagnetHeight = 3.0
     )
     {
         public int RenderResx { get; internal set; }
@@ -104,7 +106,6 @@ public sealed class BlenderLayoutRunner
             "--model_name_seed", opt.ModelNameSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--render_resx", opt.RenderResx.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--render_resy", opt.RenderResy.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--holes_spacing", opt.HolesSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         if (opt.Acc is not null)
@@ -244,6 +245,21 @@ public sealed class BlenderLayoutRunner
                     "--hole_diameter", opt.FigureHoleDiameter.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--hole_length", opt.FigureHoleLength.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 };
+
+                jigArgs.Add("--magnet_diameter"); jigArgs.Add(opt.MagnetDiameter.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                jigArgs.Add("--magnet_height"); jigArgs.Add(opt.MagnetHeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                // Pass card 2.5D STL and layout JSON if they exist
+                var cardStlPath = Path.Combine(opt.MidDir, "card_25d.stl");
+                var layoutJsonPath = Path.Combine(opt.MidDir, opt.ModelNameSeed + "_layout.json");
+                if (File.Exists(cardStlPath))
+                {
+                    jigArgs.Add("--card_stl"); jigArgs.Add(Quote(cardStlPath));
+                }
+                if (File.Exists(layoutJsonPath))
+                {
+                    jigArgs.Add("--layout_json"); jigArgs.Add(Quote(layoutJsonPath));
+                }
 
                 var jigPsi = new ProcessStartInfo
                 {

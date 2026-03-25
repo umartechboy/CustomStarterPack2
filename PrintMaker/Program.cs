@@ -230,11 +230,11 @@ class Program
                 cuttingMargin_mm: cuttingMargin_mm,
                 minStickerSizes_smm: minStickerSizes_smm,
                 width: 130,
-                height: 190,
+                height: 170,
                 thickness: 5,
                 hasHole: false,
                 textHeight: 30,
-                upperRatio: 0.2F,
+                upperRatio: 0.15F,
                 marginFig: 4,
                 marginAcc: 2,
                 paddingCard: 4,
@@ -298,9 +298,9 @@ class Program
 
         string[] jigSides = new[] { "+Z", "-Z", "+X", "-X", "+Y", "-Y" };
         bool skipRender = BlenderRenderOutputsExist(inDir, outDir, nameSeed);
-        bool skipJigs = JigOutputsExist(outDir, nameSeed, jigSides) && false;
+        bool skipJigs = false; // JigOutputsExist(outDir, nameSeed, jigSides);
         if (skipRender) Console.WriteLine($"[SKIP] Blender render outputs already exist for {nameSeed}");
-        if (skipJigs) Console.WriteLine($"[SKIP] Jig outputs already exist for {nameSeed}");
+        //if (skipJigs) Console.WriteLine($"[SKIP] Jig outputs already exist for {nameSeed}");
 
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
@@ -332,15 +332,17 @@ class Program
         Subtitle: subtitle,
         renderResx: renderResx,
         renderResy: renderResy,
-        JigsRequested: "+Z",
+        JigsRequested: "+Z,-Z,+Y,-Y,+X,-X",
         OverlapX: 25.0,
         OverlapY: 8.0,
         OverlapZ: 25.0,
         InflationMargin: 0.4,
         GridHeight: 50.0,
-        FigureTrimPercent: 0.1,
-        FigureHoleDiameter: 3.0,
-        FigureHoleLength: 5.0
+        FigureTrimPercent: 0.05,
+        FigureHoleDiameter: 3.2,
+        FigureHoleLength: 5.5,
+        MagnetDiameter: 5.2,
+        MagnetHeight: 2.2
     ) { HolesSpacing = 20.0f }
 );
         string jigsMetaPath = Path.Combine(outDir, $"{nameSeed}_jigs_meta.json");
