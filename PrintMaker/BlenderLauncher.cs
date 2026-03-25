@@ -57,6 +57,7 @@ public sealed class BlenderLayoutRunner
     {
         public int RenderResx { get; internal set; }
         public int RenderResy { get; internal set; }
+        public float HolesSpacing { get; internal set; }
     }
 
     // === PUBLIC API ===
@@ -100,6 +101,7 @@ public sealed class BlenderLayoutRunner
             "--model_name_seed", opt.ModelNameSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--render_resx", opt.RenderResx.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--render_resy", opt.RenderResy.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--holes_spacing", opt.HolesSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         if (opt.Acc is not null)
@@ -199,6 +201,20 @@ public sealed class BlenderLayoutRunner
         var payload = JsonSerializer.Deserialize<LayoutPayload>(json, JsonOptions)
                       ?? throw new InvalidDataException("JSON deserialized to null.");
 
+
+        var tris = GLBProcessor.Parse(opt.Figure); // Touch the GLB early to surface any parsing issues before launching Blender.
+        var minX = tris.Min(t => t.X.Min());
+        var maxX = tris.Max(t => t.X.Max());
+        var minY = tris.Min(t => t.Y.Min());
+        var maxY = tris.Max(t => t.Y.Max());
+        var minZ = tris.Min(t => t.Z.Min());
+        var maxZ = tris.Max(t => t.Z.Max());
+        var lowestTris = tris.FindAll(t => t.Y.Min() <= minY + (maxY - minY) * 0.1);
+        var avgZ = lowestTris.SelectMany(t => t.Z).Average();
+        var yProp = avgZ / (maxZ - minZ);
+
+
+
         if (!string.IsNullOrWhiteSpace(opt.JigsRequested) && payload.Meta.FigureSlotBounds != null)
         {
             var bounds = payload.Meta.FigureSlotBounds;
@@ -218,7 +234,9 @@ public sealed class BlenderLayoutRunner
                     "--overlap_y", opt.OverlapY.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--overlap_z", opt.OverlapZ.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--inflation_margin", opt.InflationMargin.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--holes_y_prop", yProp.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--holes_spacing", opt.HolesSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 };
 
                 var jigPsi = new ProcessStartInfo

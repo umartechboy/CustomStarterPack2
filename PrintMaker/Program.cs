@@ -22,7 +22,7 @@ using System.Runtime.Intrinsics.Arm;
 
 class Program
 {
-    static bool dontRunBlender2PyInDebug = false;
+    static bool dontRunBlender2PyInDebug = true;
     static bool dontRunJigsInDebug = false;
     static string makeArtifactInDebug = "card"; // "" for both, "null" for none, "card", "keychain"
     static int resXyInDebug = 300;
@@ -82,6 +82,11 @@ class Program
             float cuttingMargin_mm = 0.0f;         // --cut_margin_mm
             int cutSmoothing_px = 5;
 
+            if (isDebug)
+            {
+                workingDir = "";
+                jobID = "001";
+            }
 
             //// If no args or null -> help
             //if (args == null || args.Length == 0)
