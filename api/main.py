@@ -2083,7 +2083,9 @@ async def get_starter_pack_files(job_id: str):
             url = f"{base_url}/final_output/{f}"
 
             # Blender 2.5D outputs (job_id.stl, job_id_texture.png, job_id.blend)
-            if f == f"{job_id}.stl":
+            if f == "card_card_25d.stl":
+                files["outputs"]["stl_25d"] = url  # holed version takes priority
+            elif f == f"{job_id}.stl" and "stl_25d" not in files["outputs"]:
                 files["outputs"]["stl_25d"] = url
             elif f == f"{job_id}_texture.png":
                 files["outputs"]["texture_25d"] = url
