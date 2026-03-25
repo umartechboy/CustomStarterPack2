@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -198,13 +199,33 @@ public sealed class BlenderLayoutRunner
         var json = await File.ReadAllTextAsync(jsonPath, ct).ConfigureAwait(false);
         var payload = JsonSerializer.Deserialize<LayoutPayload>(json, JsonOptions)
                       ?? throw new InvalidDataException("JSON deserialized to null.");
-
         if (!string.IsNullOrWhiteSpace(opt.JigsRequested) && payload.Meta.FigureSlotBounds != null)
         {
             var bounds = payload.Meta.FigureSlotBounds;
             if (bounds.SlotCenter != null && bounds.SlotSize != null)
             {
+                // =========================================================================
+                // RESOLVE VIRTUAL ENVIRONMENT PATH (Cross-Platform)
+                // =========================================================================
+                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var venvDirectory = Path.Combine(userProfile, "bpy_env_313");
+
+                bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+                // Windows uses \Scripts\python.exe, Linux/Mac uses /bin/python
+                var venvPythonPath = Path.Combine(venvDirectory, isWindows ? "Scripts" : "bin", isWindows ? "python.exe" : "python");
+
+                // Fail fast if the environment wasn't set up manually beforehand
+                if (!File.Exists(venvPythonPath))
+                {
+                    throw new FileNotFoundException($"The required Python environment was not found at '{venvPythonPath}'. Please set it up manually.");
+                }
+
+                // =========================================================================
+                // RUN JIG GENERATION SCRIPT
+                // =========================================================================
                 var makeJigPath = Path.Combine(Path.GetDirectoryName(opt.ScriptPath) ?? "", "make_jig.py");
+
                 var jigArgs = new List<string>
                 {
                     Quote(makeJigPath),
@@ -223,7 +244,7 @@ public sealed class BlenderLayoutRunner
 
                 var jigPsi = new ProcessStartInfo
                 {
-                    FileName = "python.exe",
+                    FileName = venvPythonPath, // <-- Reliably points to the manual venv on both OS's
                     Arguments = string.Join(" ", jigArgs),
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -232,6 +253,7 @@ public sealed class BlenderLayoutRunner
                     StandardOutputEncoding = Encoding.UTF8,
                     StandardErrorEncoding = Encoding.UTF8
                 };
+
                 Console.WriteLine("Args given to jig generation script:" + jigPsi.Arguments);
                 using var jigProc = new Process { StartInfo = jigPsi, EnableRaisingEvents = true };
                 jigProc.OutputDataReceived += (_, e) =>

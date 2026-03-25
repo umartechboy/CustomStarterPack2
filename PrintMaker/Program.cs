@@ -23,7 +23,7 @@ using System.Runtime.Intrinsics.Arm;
 class Program
 {
     static bool dontRunBlender2PyInDebug = true;
-    static bool dontRunJigsInDebug = true;
+    static bool dontRunJigsInDebug = false;
     static string makeArtifactInDebug = "null"; // "" for both, "null" for none, "card", "keychain"
     static int resXyInDebug = 300;
     static bool isDebug = false;
@@ -158,32 +158,32 @@ class Program
             // In your Main method, add this after the existing tasks:
             var tasks = new Task[] {
 
-            CreateAll(
-                nameSeed: "keychain",
-                inDir: inDir,
-                outDir: outDir,
-                jobID: jobID,
-                dpi: dpi,
-                cutSmoothing: cutSmoothing_px,
-                cuttingMargin_mm: cuttingMargin_mm * 0.3F,
-                minStickerSizes_smm: minStickerSizes_smm * 0.3F,
-                width: 130 * 0.3F,
-                height: 190 * 0.3F,
-                thickness: 2,
-                hasHole: true,
-                textHeight: 7,
-                upperRatio: 0.15F,
-                marginFig: 2,
-                marginAcc: 1,
-                paddingCard: 1.5F,
-                cardFillet: 1,
-                title: title,
-                subtitle: subtitle,
-                layoutOnly: false,
-                renderResx: 2000,
-                renderResy: 2000,
-                dontCreateBoundaries: true
-                ),
+            //CreateAll(
+            //    nameSeed: "keychain",
+            //    inDir: inDir,
+            //    outDir: outDir,
+            //    jobID: jobID,
+            //    dpi: dpi,
+            //    cutSmoothing: cutSmoothing_px,
+            //    cuttingMargin_mm: cuttingMargin_mm * 0.3F,
+            //    minStickerSizes_smm: minStickerSizes_smm * 0.3F,
+            //    width: 130 * 0.3F,
+            //    height: 190 * 0.3F,
+            //    thickness: 2,
+            //    hasHole: true,
+            //    textHeight: 7,
+            //    upperRatio: 0.15F,
+            //    marginFig: 2,
+            //    marginAcc: 1,
+            //    paddingCard: 1.5F,
+            //    cardFillet: 1,
+            //    title: title,
+            //    subtitle: subtitle,
+            //    layoutOnly: false,
+            //    renderResx: 2000,
+            //    renderResy: 2000,
+            //    dontCreateBoundaries: true
+            //    ),
 
             CreateAll(
                 nameSeed: "card",
@@ -244,8 +244,10 @@ class Program
     }
     static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries)
     {
-        if (isDebug && !nameSeed.Contains(makeArtifactInDebug))
-        { Console.WriteLine("Skipping " + nameSeed + " in  debug"); return; }
+        if (isDebug && !nameSeed.Contains(makeArtifactInDebug) && dontRunJigsInDebug && dontRunBlender2PyInDebug)
+        {
+            Console.WriteLine("Skipping " + nameSeed + " in  debug"); return;
+        }
         var result = await BlenderLayoutRunner.RunAsync(
     new BlenderLayoutRunner.BlenderLayoutOptions(
         BlenderExe: @"blender",
@@ -274,9 +276,9 @@ class Program
         renderResx: renderResx,
         renderResy: renderResy,
         JigsRequested: "+Z,-Z,+X,-X,+Y,-Y",
-        OverlapX: 10.0,
-        OverlapY: 5.0,
-        OverlapZ: 5.0,
+        OverlapX: 25.0,
+        OverlapY: 8.0,
+        OverlapZ: 25.0,
         InflationMargin: 0.4,
         GridHeight: 50.0
     )
