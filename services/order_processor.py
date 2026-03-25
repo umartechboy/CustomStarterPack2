@@ -665,6 +665,13 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     if os.path.exists(figure_stl):
                         outputs["figure_stl"] = figure_stl
                         outputs["figure_stl_url"] = f"/storage/test_starter_pack/{job_id}/final_output/card_figure.stl"
+
+                    # Replace 2.5D STL with the holed version from PrintMaker
+                    card_25d_holed = os.path.join(output_dir, "card_card_25d.stl")
+                    if os.path.exists(card_25d_holed):
+                        outputs["stl_25d"] = card_25d_holed
+                        outputs["stl_25d_url"] = f"/storage/test_starter_pack/{job_id}/final_output/card_card_25d.stl"
+                        logger.info(f"[ORDER {job_id}] Replaced 2.5D STL with holed version")
                     if os.path.exists(card_blend):
                         outputs["blend"] = card_blend
                         outputs["blend_url"] = f"/storage/test_starter_pack/{job_id}/final_output/card_model.blend"
