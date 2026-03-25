@@ -283,7 +283,8 @@ public sealed class BlenderLayoutRunner
                     if (e.Data is not null) Console.Error.WriteLine($"[JIG-ERR] {e.Data}");
                 };
 
-                if (!opt.DontRunBlenderForJigs)
+                // Always run make_jig.py — it handles jig skip internally per-side,
+                // and also processes figure holes and card magnet holes.
                 {
                     if (!jigProc.Start())
                         throw new InvalidOperationException("Failed to start python process for jig generation.");
