@@ -1,6 +1,7 @@
 import base64
 import os
 import aiofiles
+import requests as http_requests
 from openai import OpenAI
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -238,27 +239,49 @@ CRITICAL: Generate exactly ONE hyperrealistic {accessory} - single item only, fl
 
     async def _generate_from_user_image(self, job_id: str, user_image_path: str, prompt: str, image_type: str,
                                        output_dir: str) -> Dict:
-        """Generate action figure from user image using OpenAI Image Edit API with gpt-image-1"""
+        """Generate action figure from user image using OpenAI Image Edit API with gpt-image-1.5"""
         try:
+            import time
             print(f"🎭 Generating {image_type} from user image for job {job_id}")
             print(f"📐 Using gpt-image-1.5 with 1024x1536 dimensions")
 
-            with open(user_image_path, 'rb') as image_file:
-                response = self.client.images.edit(
-                    model="gpt-image-1.5",
-                    image=image_file,
-                    prompt=prompt,
-                    size="1024x1536",
-                    background="transparent" if self.transparent_background else "auto",
-                    quality="high",
-                    output_format="png",
-                    input_fidelity="high",  # High fidelity to match facial features
-                    n=1
-                )
+            # Retry up to 3 times for transient 500 errors
+            max_retries = 3
+            resp = None
+            for attempt in range(1, max_retries + 1):
+                # Use raw multipart form request — the Python SDK sends JSON which
+                # the /v1/images/edits endpoint rejects for gpt-image-1.5
+                with open(user_image_path, 'rb') as image_file:
+                    resp = http_requests.post(
+                        'https://api.openai.com/v1/images/edits',
+                        headers={'Authorization': f'Bearer {settings.OPENAI_API_KEY}'},
+                        files={'image': (os.path.basename(user_image_path), image_file, 'image/png')},
+                        data={
+                            'model': 'gpt-image-1.5',
+                            'prompt': prompt,
+                            'size': '1024x1536',
+                            'quality': 'high',
+                            'input_fidelity': 'high',
+                            'output_format': 'png',
+                            'background': 'transparent' if self.transparent_background else 'auto',
+                            'moderation': 'low',
+                            'n': '1',
+                        },
+                        timeout=300
+                    )
 
-            # Handle base64 response (gpt-image-1 always returns b64_json)
-            image_data = response.data[0]
-            image_bytes = base64.b64decode(image_data.b64_json)
+                if resp.status_code == 200:
+                    break
+                elif resp.status_code >= 500 and attempt < max_retries:
+                    wait = attempt * 10
+                    print(f"⚠️ OpenAI 500 error (attempt {attempt}/{max_retries}), retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    raise Exception(f"Error code: {resp.status_code} - {resp.json()}")
+
+            response_data = resp.json()
+            image_base64 = response_data['data'][0]['b64_json']
+            image_bytes = base64.b64decode(image_base64)
 
             # Save the image
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -283,12 +306,87 @@ CRITICAL: Generate exactly ONE hyperrealistic {accessory} - single item only, fl
                 "filename": filename,
                 "url": f"/storage/generated/{job_id}/{filename}",
                 "generated_at": datetime.now().isoformat(),
-                "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else None
+                "tokens_used": response_data.get('usage', {}).get('total_tokens')
             }
 
         except Exception as e:
-            print(f"❌ Error generating {image_type}: {str(e)}")
-            return None
+            print(f"⚠️ OpenAI direct failed for {image_type}: {str(e)}")
+            print(f"🔄 Falling back to fal.ai gpt-image-1.5/edit...")
+
+            try:
+                return await self._generate_from_user_image_fal(
+                    job_id=job_id,
+                    user_image_path=user_image_path,
+                    prompt=prompt,
+                    image_type=image_type,
+                    output_dir=output_dir
+                )
+            except Exception as fal_e:
+                print(f"❌ fal.ai fallback also failed for {image_type}: {str(fal_e)}")
+                return None
+
+    async def _generate_from_user_image_fal(self, job_id: str, user_image_path: str, prompt: str,
+                                            image_type: str, output_dir: str) -> Dict:
+        """Fallback: generate action figure via fal.ai gpt-image-1.5/edit endpoint"""
+        import fal_client
+        os.environ['FAL_KEY'] = settings.FAL_API_KEY
+
+        # Upload image to fal.ai first
+        with open(user_image_path, 'rb') as f:
+            image_url = fal_client.upload(f.read(), content_type='image/png')
+        print(f"📤 Uploaded image to fal.ai: {image_url}")
+
+        result = fal_client.subscribe(
+            "fal-ai/gpt-image-1.5/edit",
+            arguments={
+                "prompt": prompt,
+                "image_urls": [image_url],
+                "image_size": "1024x1536",
+                "quality": "high",
+                "input_fidelity": "high",
+                "output_format": "png",
+                "background": "transparent" if self.transparent_background else "auto",
+                "num_images": 1,
+            },
+        )
+
+        if not result or not result.get('images'):
+            raise Exception("fal.ai returned no images")
+
+        # Download the generated image
+        img_url = result['images'][0]['url']
+        print(f"📥 Downloading fal.ai result: {img_url}")
+        img_resp = http_requests.get(img_url, timeout=60)
+        if img_resp.status_code != 200:
+            raise Exception(f"Failed to download fal.ai image: HTTP {img_resp.status_code}")
+
+        image_bytes = img_resp.content
+
+        # Save the image
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{image_type}_{timestamp}.png"
+        file_path = os.path.join(output_dir, filename)
+
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(image_bytes)
+
+        print(f"✅ Saved {image_type} via fal.ai to {file_path}")
+
+        return {
+            "type": image_type,
+            "method": "fal_image_edit",
+            "model_used": "gpt-image-1.5-fal",
+            "prompt": prompt,
+            "size": "1024x1536",
+            "quality": "high",
+            "input_fidelity": "high",
+            "transparent_background": self.transparent_background,
+            "file_path": file_path,
+            "filename": filename,
+            "url": f"/storage/generated/{job_id}/{filename}",
+            "generated_at": datetime.now().isoformat(),
+            "tokens_used": None
+        }
 
 
     async def _generate_accessory_image(self, job_id: str, prompt: str, image_type: str, output_dir: str, accessory_name: str) -> Dict:
@@ -338,5 +436,51 @@ CRITICAL: Generate exactly ONE hyperrealistic {accessory} - single item only, fl
             }
 
         except Exception as e:
-            print(f"❌ Error generating {image_type}: {str(e)}")
-            return None
+            print(f"⚠️ OpenAI direct failed for {image_type}: {str(e)}")
+            print(f"🔄 Falling back to fal.ai for accessory {image_type}...")
+            try:
+                import fal_client
+                os.environ['FAL_KEY'] = settings.FAL_API_KEY
+                result = fal_client.subscribe(
+                    "fal-ai/gpt-image-1.5",
+                    arguments={
+                        "prompt": prompt,
+                        "image_size": "1024x1536",
+                        "quality": "high",
+                        "output_format": "png",
+                        "background": "transparent" if self.transparent_background else "auto",
+                        "num_images": 1,
+                    },
+                )
+                if not result or not result.get('images'):
+                    raise Exception("fal.ai returned no images")
+                img_url = result['images'][0]['url']
+                print(f"📥 Downloading fal.ai accessory result: {img_url}")
+                img_resp = http_requests.get(img_url, timeout=60)
+                if img_resp.status_code != 200:
+                    raise Exception(f"Failed to download fal.ai image: HTTP {img_resp.status_code}")
+                image_bytes = img_resp.content
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{image_type}_{timestamp}.png"
+                file_path = os.path.join(output_dir, filename)
+                async with aiofiles.open(file_path, 'wb') as f:
+                    await f.write(image_bytes)
+                print(f"✅ Saved {image_type} via fal.ai to {file_path}")
+                return {
+                    "type": image_type,
+                    "method": "fal_image_generation",
+                    "model_used": "gpt-image-1.5-fal",
+                    "prompt": prompt,
+                    "size": "1024x1536",
+                    "quality": "high",
+                    "transparent_background": self.transparent_background,
+                    "accessory": accessory_name,
+                    "file_path": file_path,
+                    "filename": filename,
+                    "url": f"/storage/generated/{job_id}/{filename}",
+                    "generated_at": datetime.now().isoformat(),
+                    "tokens_used": None
+                }
+            except Exception as fal_e:
+                print(f"❌ fal.ai fallback also failed for {image_type}: {str(fal_e)}")
+                return None

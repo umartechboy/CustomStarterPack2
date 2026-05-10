@@ -53,7 +53,7 @@ class Program
 
             // ---- parse CLI (--key value OR --key=value), validate keys ----
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing" };
+    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle" };
 
             var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < args.Length; i++)

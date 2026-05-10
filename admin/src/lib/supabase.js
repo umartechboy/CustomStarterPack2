@@ -5,4 +5,4 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIU
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://2j1q3wkmojqa3e-8000.proxy.runpod.net'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://2kp8w7f44qtbew-8000.proxy.runpod.net'
