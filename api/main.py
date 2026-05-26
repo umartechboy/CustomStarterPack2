@@ -276,7 +276,7 @@ async def startup_event():
 
     # Initialize order processor with services
     order_processor = get_order_processor()
-    order_processor.set_services(ai_generator, sculptok_client, fal_client=fal_3d_client)
+    order_processor.set_services(ai_generator, depth_client, fal_client=fal_3d_client)
     logger.info("✅ Order processor initialized")
 
     # Restore jobs from storage
@@ -330,7 +330,7 @@ async def submit_job(
     user_image: UploadFile = File(...),
     accessory_1: str = Form(...),
     accessory_2: str = Form(...),
-    accessory_3: str = Form(...),
+    accessory_3: str = Form(default=""),
 ):
     """Submit a job to generate action figure images with specified style"""
     
@@ -1054,6 +1054,7 @@ async def shutdown_event():
 # ================================
 
 from services.sculptok_client import SculptokClient, create_sculptok_client
+from services.fal_depth_client import create_fal_depth_client
 
 # Initialize Sculptok client for testing
 try:
@@ -1062,6 +1063,16 @@ try:
 except Exception as e:
     logger.warning(f"⚠️ Sculptok Client initialization failed: {e}")
     sculptok_client = None
+
+# fal.ai Depth-Anything client — replaces Sculptok for depth-map generation in the
+# production order pipeline. SculptokClient stays available above for /test/sculptok/*
+# debug endpoints, but order_processor uses depth_client for actual customer orders.
+try:
+    depth_client = create_fal_depth_client()
+    logger.info("✅ Fal Depth Client initialized (production depth-map provider)")
+except Exception as e:
+    logger.warning(f"⚠️ Fal Depth Client init failed (falling back to Sculptok): {e}")
+    depth_client = sculptok_client
 
 @app.get("/test/sculptok/health")
 async def test_sculptok_health():
@@ -1244,7 +1255,7 @@ async def test_gpt_to_sculptok_pipeline(
     user_image: UploadFile = File(...),
     accessory_1: str = Form(...),
     accessory_2: str = Form(...),
-    accessory_3: str = Form(...),
+    accessory_3: str = Form(default=""),
     width_mm: float = Form(default=120.0)
 ):
     """
@@ -1476,7 +1487,7 @@ async def submit_starter_pack_order(
     # Accessory descriptions
     accessory_1: str = Form(...),
     accessory_2: str = Form(...),
-    accessory_3: str = Form(...),
+    accessory_3: str = Form(default=""),
     # Title and subtitle
     title: str = Form(...),
     subtitle: str = Form(default=""),
@@ -2158,7 +2169,7 @@ async def test_starter_pack_full_pipeline(
     # Accessory descriptions
     accessory_1: str = Form(...),
     accessory_2: str = Form(...),
-    accessory_3: str = Form(...),
+    accessory_3: str = Form(default=""),
     # Title and subtitle
     title: str = Form(...),
     subtitle: str = Form(default=""),
@@ -2425,7 +2436,7 @@ Requirements:
             acc_sculptok_dir = os.path.join(sculptok_output_dir, acc_name)
             os.makedirs(acc_sculptok_dir, exist_ok=True)
 
-            acc_depth_result = await sculptok_client.process_image_to_depth_map(
+            acc_depth_result = await depth_client.process_image_to_depth_map(
                 image_path=acc_img.get("file_path"),
                 output_dir=acc_sculptok_dir,
                 image_name=acc_name,
@@ -2694,7 +2705,7 @@ async def resume_starter_pack_pipeline(
             acc_sculptok_dir = os.path.join(sculptok_output_dir, acc_name)
             os.makedirs(acc_sculptok_dir, exist_ok=True)
 
-            acc_depth_result = await sculptok_client.process_image_to_depth_map(
+            acc_depth_result = await depth_client.process_image_to_depth_map(
                 image_path=acc_img_path,
                 output_dir=acc_sculptok_dir,
                 image_name=acc_name,
@@ -2934,7 +2945,7 @@ async def create_test_shopify_order(
     customer_email: str = Form(...),
     accessory_1: str = Form(...),
     accessory_2: str = Form(...),
-    accessory_3: str = Form(...),
+    accessory_3: str = Form(default=""),
     user_image: UploadFile = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):

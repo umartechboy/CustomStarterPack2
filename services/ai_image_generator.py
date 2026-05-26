@@ -39,7 +39,12 @@ class AIImageGenerator:
             results.append(base_result)
 
         # 2. Generate standalone accessory images using IMAGE GENERATION API
+        # FIX 2026-05-23: empty/placeholder accessories SKIPPEN — bei leer wird sonst random Objekt generiert
+        EMPTY_VALUES = {"", "-", "—", "–", "none", "keine", "kein"}
         for i, accessory in enumerate(accessories, 1):
+            if not accessory or accessory.strip().lower() in EMPTY_VALUES:
+                print(f"[ai_image_gen] skipping accessory_{i} (empty/placeholder: '{accessory}')")
+                continue
             accessory_prompt = self._build_accessory_prompt(accessory)
             accessory_result = await self._generate_accessory_image(
                 job_id=job_id,

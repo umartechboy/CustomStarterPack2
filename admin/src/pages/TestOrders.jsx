@@ -189,14 +189,13 @@ export default function TestOrders() {
               />
             </div>
             <div className="form-group">
-              <label>Accessory 3 *</label>
+              <label>Accessory 3 <span style={{color:'#888',fontWeight:400}}>(optional)</span></label>
               <input
                 type="text"
                 name="accessory_3"
-                placeholder="e.g., helmet"
+                placeholder="e.g., helmet (leer lassen wenn nicht gewünscht)"
                 value={formData.accessory_3}
                 onChange={handleInputChange}
-                required
               />
             </div>
           </div>

@@ -638,6 +638,129 @@ Make it visually interesting but not too busy - it should complement, not overwh
                         dst = os.path.join(output_dir, f)
                         shutil.copy2(src, dst)
 
+                    # ============================================================
+                    # STEP 6.4: STL-Repair (Voxel-Remesh) für Druckbarkeit
+                    # Fixt non-watertight Meshes vom PrintMaker mit Voxel-Remesh
+                    # ============================================================
+                    try:
+                        repair_targets = [
+                            ("card_figure.stl", 0.3),  # 0.3mm voxel = garantiert watertight (manifold-Boolean braucht is_volume)
+                            ("card_model.stl",  0.4),
+                            (f"{job_id}.stl",   0.4),  # 2.5D-Relief-Karte (Hauptplatte)
+                        ]
+                        for stl_name, vsize in repair_targets:
+                            stl_path = os.path.join(output_dir, stl_name)
+                            if not os.path.exists(stl_path):
+                                logger.warning(f"[ORDER {job_id}] STL-Repair: {stl_name} nicht gefunden — skip")
+                                continue
+                            repair_proc = subprocess.run([
+                                "blender", "--background", "--python",
+                                "/workspace/SimpleMe/PrintMaker/repair_stl_blender.py",
+                                "--",
+                                "--input",  stl_path,
+                                "--output", stl_path,  # in-place
+                                "--voxel-size", str(vsize),
+                            ], capture_output=True, text=True, timeout=300)
+                            if repair_proc.returncode == 0 and "Watertight: True" in (repair_proc.stdout or ""):
+                                logger.info(f"[ORDER {job_id}] ✅ STL-Repair {stl_name}: watertight")
+                            elif repair_proc.returncode == 0:
+                                logger.info(f"[ORDER {job_id}] ✅ STL-Repair {stl_name}: done")
+                            else:
+                                logger.error(f"[ORDER {job_id}] ❌ STL-Repair {stl_name} failed: {repair_proc.stderr[:500]}")
+                    except Exception as e:
+                        logger.error(f"[ORDER {job_id}] STL-Repair exception: {e}")
+
+                    # ============================================================
+                    # STEP 6.5: Magnet-Bohrungen in Figur + Platte
+                    # 2× 6mm Ø × 2mm Magnete — Vorderseite der Platte + Rücken der Figur
+                    # Plate: drill_plate_basis.py (auto-detect echtes Material-Top)
+                    # Figure: drill_figure_back.py (auto-detect Z-range mit Material)
+                    # Reihenfolge: Figur ZUERST (gibt Magnet-Z-Positionen zurück) →
+                    # dann Plates mit center_y aligned zur Figur-Welt-Höhe.
+                    # ============================================================
+                    try:
+                        # ── STEP A: Figur bohren ──
+                        figure_z_positions = None
+                        figure_z_bottom = None
+                        fig_path = os.path.join(output_dir, "card_figure.stl")
+                        if os.path.exists(fig_path):
+                            try:
+                                fig_proc = subprocess.run([
+                                    "/workspace/SimpleMe/venv/bin/python",
+                                    "/workspace/SimpleMe/PrintMaker/drill_figure_back.py",
+                                    "--input", fig_path, "--output", fig_path,
+                                    "--magnet-diameter", "6",
+                                    "--magnet-height",   "2",
+                                    "--spacing-z", "30",
+                                ], capture_output=True, text=True, timeout=180)
+                                if fig_proc.returncode == 0:
+                                    logger.info(f"[ORDER {job_id}] ✅ Figur-Rücken-Magnete (auto-Z)")
+                                    # Parse MAGNETS_JSON line
+                                    import json as _json, re as _re
+                                    m = _re.search(r'MAGNETS_JSON:\s*(\{[^\n]+\})', fig_proc.stdout or '')
+                                    if m:
+                                        info = _json.loads(m.group(1))
+                                        figure_z_positions = info.get('z_positions')
+                                        figure_z_bottom = info.get('z_bottom')
+                                        logger.info(f"[ORDER {job_id}] Figur-Magnet-Positionen: Z={figure_z_positions}, bottom={figure_z_bottom}")
+                                else:
+                                    logger.error(f"[ORDER {job_id}] ❌ Figur-Drill: {fig_proc.stderr[:300]}")
+                            except Exception as fe:
+                                logger.error(f"[ORDER {job_id}] Figur-Drill exception: {fe}")
+
+                        # ── STEP B: Plates bohren, aligned zur Figur ──
+                        # Welt-Höhe der Figur-Magnete = z_pos - z_bottom (Figur steht mit Boden auf Welt-Z=0)
+                        # Welt-Höhe der Platten-Magnete (Platte aufrecht mit Boden auf Welt-Z=0) = plate_y - plate_y_bottom
+                        # → plate_y = welt_höhe + plate_y_bottom
+                        plate_targets = [
+                            "card_model.stl",
+                            f"{job_id}.stl",
+                        ]
+                        for stl_name in plate_targets:
+                            stl_path = os.path.join(output_dir, stl_name)
+                            if not os.path.exists(stl_path):
+                                logger.warning(f"[ORDER {job_id}] Magnet-Drill: {stl_name} nicht gefunden — skip")
+                                continue
+
+                            # Calculate aligned center_y + spacing_y based on figure magnet positions
+                            center_y_str = "0"
+                            spacing_y_str = "20"  # default 40mm apart
+                            if figure_z_positions and len(figure_z_positions) == 2 and figure_z_bottom is not None:
+                                try:
+                                    import trimesh as _tm
+                                    pm = _tm.load(stl_path, force="mesh")
+                                    plate_y_min = float(pm.bounds[0, 1])
+                                    # Welt-Höhen der 2 Figur-Magnete
+                                    wh1 = figure_z_positions[0] - figure_z_bottom
+                                    wh2 = figure_z_positions[1] - figure_z_bottom
+                                    py1 = wh1 + plate_y_min
+                                    py2 = wh2 + plate_y_min
+                                    cy = (py1 + py2) / 2.0
+                                    sy = abs(py2 - py1) / 2.0
+                                    center_y_str = f"{cy:.2f}"
+                                    spacing_y_str = f"{sy:.2f}"
+                                    logger.info(f"[ORDER {job_id}] {stl_name}: aligned plate-Y = {py1:.1f}, {py2:.1f} (center_y={cy:.1f}, spacing={sy:.1f})")
+                                except Exception as ae:
+                                    logger.warning(f"[ORDER {job_id}] Alignment-Calc failed für {stl_name}: {ae} — fallback to defaults")
+
+                            magnet_proc = subprocess.run([
+                                "/workspace/SimpleMe/venv/bin/python",
+                                "/workspace/SimpleMe/PrintMaker/drill_plate_basis.py",
+                                "--input", stl_path,
+                                "--output", stl_path,
+                                "--magnet-diameter", "6",
+                                "--magnet-height",   "2",
+                                "--center-x",        "0",
+                                "--center-y",        center_y_str,
+                                "--spacing-y",       spacing_y_str,
+                                "--side",            "top",
+                            ], capture_output=True, text=True, timeout=180)
+                            if magnet_proc.returncode == 0:
+                                logger.info(f"[ORDER {job_id}] ✅ Plate-Magnete in {stl_name} (Vorderseite, 2× 6×2mm, aligned)")
+                            else:
+                                logger.error(f"[ORDER {job_id}] ❌ Plate-Drill {stl_name}: {magnet_proc.stderr[:500]}")
+                    except Exception as e:
+                        logger.error(f"[ORDER {job_id}] Magnet-Drill exception: {e}")
                     # Map key outputs
                     card_stl = os.path.join(output_dir, "card_model.stl")
                     card_blend = os.path.join(output_dir, "card_model.blend")

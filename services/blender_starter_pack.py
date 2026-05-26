@@ -24,7 +24,7 @@ def write_debug_log(output_dir, data):
 # ============================================================
 CARD_WIDTH = 130.0   # mm
 CARD_HEIGHT = 170.0  # mm
-CARD_THICKNESS = 3.0 # mm
+CARD_THICKNESS = 6.0 # mm
 
 SUBDIVIDE_CUTS = 100  # Number of subdivision cuts
 SUBSURF_LEVELS = 4    # Catmull-Clark render levels
@@ -33,9 +33,9 @@ DISPLACEMENT_STRENGTH_FIGURE = 0.010  # Displacement strength for figure (in met
 DISPLACEMENT_STRENGTH_ACCESSORIES = 0.025  # Displacement strength for accessories (in meters, ~25mm)
 
 # Layout Configuration
-UPPER_RATIO = 0.15  # 15% for text/title area at top
+UPPER_RATIO = 0.22  # 22% for text/title area at top (safe gap from accessories)
 FIGURE_WIDTH_RATIO = 3.0 / 5.0  # Figure takes 3/5 of width (left side)
-ACC_HEIGHT_RATIO = 2.0 / 3.0  # Accessories column is 2/3 of card height
+ACC_HEIGHT_RATIO = 0.55  # Accessories column is 55% of card height (cleaner, more compact)
 MARGIN_FIGURE = 5.0  # mm margin around figure
 MARGIN_ACCESSORIES = 3.0  # mm margin around accessories
 ACC_VERTICAL_SPACING = 8.0  # mm visual spacing between accessories (affects position, not size)

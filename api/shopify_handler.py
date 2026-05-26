@@ -110,23 +110,50 @@ class ShopifyHandler:
         customization = {}
         accessories = []
         
+        # Verschiedene Property-Namen — Frontend hat sich geändert über die Zeit
         for prop in properties:
             name = prop.get('name', '').lower().strip()
-            value = prop.get('value', '').strip()
-            
+            value = (prop.get('value') or '').strip()
+
             logger.info(f"🔍 Processing property: '{name}' = '{value[:50]}...'")
-            
-            if not value:
+
+            if not value or value in ('—', '-', '(per E-Mail nachgereicht)'):
                 continue
-                
-            # Updated property name matching
-            if 'custom image url' in name or 'image' in name:
+
+            # ── PHOTO/IMAGE URL ──────────────────────────────────────────
+            # Neue Frontend-Variante: 'Figurine-Vorschau', '_figure_preview_url'
+            # Alte:                   'Custom Image URL', 'image'
+            if ('figurine-vorschau' in name or
+                '_figure_preview_url' in name or
+                'figur' in name and 'url' in name or
+                'custom image url' in name or
+                ('image' in name and 'url' in name)):
                 customization['image_url'] = value
-                logger.info(f"✅ Found image (length: {len(value)})")
-            elif 'accessoire' in name or 'accessory' in name:
+                logger.info(f"✅ Found image URL (length: {len(value)})")
+                continue
+
+            # ── ACCESSORIES / OBJEKTE ────────────────────────────────────
+            # Neu: 'Objekt 1', 'Objekt 2', 'Objekt 3'
+            # Alt: 'Accessoire', 'Accessory', 'accessory_1'
+            if (name.startswith('objekt') or
+                'accessoire' in name or
+                'accessory' in name):
                 accessories.append(value)
                 logger.info(f"✅ Found accessory: {value}")
-        
+                continue
+
+            # ── NAME (Titel auf der Platte) ──────────────────────────────
+            if name == 'name' or name == 'titel' or name == 'title':
+                customization['title'] = value
+                logger.info(f"✅ Found title: {value}")
+                continue
+
+            # ── SUBTITLE (Untertitel) ────────────────────────────────────
+            if name in ('untertitel', 'subtitle', 'subtitel'):
+                customization['subtitle'] = value
+                logger.info(f"✅ Found subtitle: {value}")
+                continue
+
         if accessories:
             customization['accessories'] = accessories
         
@@ -135,10 +162,10 @@ class ShopifyHandler:
         logger.info(f"   Accessories: {customization.get('accessories', [])}")
         
         # Check if this line item has customization data
-        has_customization = (
-            customization.get('accessories') and 
-            len(customization.get('accessories', [])) >= 3
-        )
+        has_customization = bool(
+            customization.get('accessories') and
+            len(customization.get('accessories', [])) >= 1
+        ) or bool(customization.get('image_url'))  # image+title sind Hauptsignal
         
         logger.info(f"🎯 Has customization: {has_customization}")
         
@@ -226,21 +253,105 @@ class ShopifyHandler:
             raise HTTPException(status_code=500, detail=str(e))
     
     async def process_shopify_customization(self, order_id: str, item: Dict):
-        """Process a customization request from Shopify order"""
+        """
+        Process a customization request from Shopify order.
+        FIXED 2026-05-22: bridges to the MODERN order_processor pipeline (services.order_processor)
+        instead of the old internal process_job. So Shopify-Orders bekommen jetzt:
+          - Step 1-6 (Image/3D/Blender/PrintMaker)
+          - Step 6.5 (Magnet-Bohrungen)
+          - Step 7 (Sticker)
+        """
         try:
             customization = item['customization']
-            
-            # Generate job ID
-            job_id = str(uuid.uuid4())
-            logger.info(f"🎯 Processing customization job: {job_id} for order: {order_id}")
-            
+
+            # 8-char job ID (matching modern pipeline convention)
+            job_id = str(uuid.uuid4())[:8]
+            logger.info(f"🎯 Processing Shopify→ModernPipeline job: {job_id} for order: {order_id}")
+
             # Download image from URL if provided
             image_path = None
             if customization.get('image_url'):
                 image_path = await self.download_customer_image(job_id, customization['image_url'])
-            
+
             if not image_path:
                 raise Exception("Could not process customer image")
+
+            # ── Modern Pipeline: build order_data + push to order_processor ──
+            from services.order_processor import get_order_processor
+            from services.supabase_client import get_supabase_client
+            from config.settings import settings as _settings
+
+            # Move image into the canonical job-dir the new pipeline expects
+            job_dir = os.path.join(_settings.STORAGE_PATH, "test_starter_pack", job_id)
+            os.makedirs(job_dir, exist_ok=True)
+            canonical_image_path = os.path.join(job_dir, "user_image.jpg")
+            if os.path.abspath(image_path) != os.path.abspath(canonical_image_path):
+                import shutil as _shutil
+                _shutil.copy2(image_path, canonical_image_path)
+
+            accessories = (customization.get('accessories') or [])[:3]
+            while len(accessories) < 3:
+                accessories.append('')
+
+            shopify_record = shopify_orders.get(order_id, {})
+
+            order_data = {
+                "job_id": job_id,
+                "job_dir": job_dir,
+                "user_image_path": canonical_image_path,
+                "accessories": accessories,
+                "title": customization.get('title') or "",
+                "subtitle": customization.get('subtitle') or "",
+                "text_color": "red",
+                "background_type": "transparent",
+                "background_color": "white",
+                "background_description": "",
+                "background_input_path": None,
+                "is_test": False,
+                "shopify_order_id": str(order_id),
+                "order_number": shopify_record.get('order_number') or f"#{order_id}",
+                "customer_name": shopify_record.get('customer_name') or "",
+                "customer_email": shopify_record.get('customer_email') or "",
+            }
+
+            # Save to Supabase
+            supabase = get_supabase_client()
+            if supabase.is_connected():
+                try:
+                    await supabase.create_order({
+                        "job_id": job_id,
+                        "shopify_order_id": str(order_id),
+                        "order_number": order_data['order_number'],
+                        "customer_name": order_data['customer_name'],
+                        "customer_email": order_data['customer_email'],
+                        "status": "pending",
+                        "input_image_path": canonical_image_path,
+                        "accessories": accessories,
+                        "title": order_data['title'],
+                        "subtitle": order_data['subtitle'],
+                        "text_color": "red",
+                        "background_type": "transparent",
+                        "background_color": "white",
+                        "background_image_path": None,
+                        "is_test": False,
+                    })
+                    logger.info(f"   ✅ Shopify-Order in Supabase gespeichert: {job_id}")
+                except Exception as db_e:
+                    logger.warning(f"   ⚠️ Supabase-Save failed: {db_e}")
+
+            # Push to modern pipeline
+            order_processor = get_order_processor()
+            await order_processor.add_order(order_data)
+            logger.info(f"   🚀 Shopify-Order {order_id} → Pipeline queued as {job_id}")
+
+            # Update Shopify record
+            if order_id in shopify_orders:
+                shopify_orders[order_id]['job_id'] = job_id
+                shopify_orders[order_id]['job_status'] = 'queued'
+                shopify_orders[order_id]['updated_at'] = datetime.now().isoformat()
+            return  # done — modern pipeline handles the rest
+
+            # ── OLD code below (unreachable, kept for reference) ──
             
             # Create job data (similar to your existing process_job)
             job_data = {
