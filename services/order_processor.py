@@ -679,9 +679,8 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     # dann Plates mit center_y aligned zur Figur-Welt-Höhe.
                     # ============================================================
                     try:
-                        # ── STEP A: Figur bohren ──
-                        figure_z_positions = None
-                        figure_z_bottom = None
+                        # ── STEP A: Drill figure back (2 holes side-by-side in X) ──
+                        figure_info = None
                         fig_path = os.path.join(output_dir, "card_figure.stl")
                         if os.path.exists(fig_path):
                             try:
@@ -691,27 +690,24 @@ Make it visually interesting but not too busy - it should complement, not overwh
                                     "--input", fig_path, "--output", fig_path,
                                     "--magnet-diameter", "6",
                                     "--magnet-height",   "2",
-                                    "--spacing-z", "30",
+                                    "--spacing-x", "20",
                                 ], capture_output=True, text=True, timeout=180)
                                 if fig_proc.returncode == 0:
-                                    logger.info(f"[ORDER {job_id}] ✅ Figur-Rücken-Magnete (auto-Z)")
-                                    # Parse MAGNETS_JSON line
+                                    logger.info(f"[ORDER {job_id}] ✅ Figure back magnets drilled (side-by-side in X)")
                                     import json as _json, re as _re
                                     m = _re.search(r'MAGNETS_JSON:\s*(\{[^\n]+\})', fig_proc.stdout or '')
                                     if m:
-                                        info = _json.loads(m.group(1))
-                                        figure_z_positions = info.get('z_positions')
-                                        figure_z_bottom = info.get('z_bottom')
-                                        logger.info(f"[ORDER {job_id}] Figur-Magnet-Positionen: Z={figure_z_positions}, bottom={figure_z_bottom}")
+                                        figure_info = _json.loads(m.group(1))
+                                        logger.info(f"[ORDER {job_id}] Figure magnet info: {figure_info}")
                                 else:
-                                    logger.error(f"[ORDER {job_id}] ❌ Figur-Drill: {fig_proc.stderr[:300]}")
+                                    logger.error(f"[ORDER {job_id}] ❌ Figure drill failed: {fig_proc.stderr[:300]}")
                             except Exception as fe:
-                                logger.error(f"[ORDER {job_id}] Figur-Drill exception: {fe}")
+                                logger.error(f"[ORDER {job_id}] Figure drill exception: {fe}")
 
-                        # ── STEP B: Plates bohren, aligned zur Figur ──
-                        # Welt-Höhe der Figur-Magnete = z_pos - z_bottom (Figur steht mit Boden auf Welt-Z=0)
-                        # Welt-Höhe der Platten-Magnete (Platte aufrecht mit Boden auf Welt-Z=0) = plate_y - plate_y_bottom
-                        # → plate_y = welt_höhe + plate_y_bottom
+                        # ── STEP B: Drill plate (holes aligned to figure) ──
+                        # Figure holes are at same Z (anchor_z), offset in X.
+                        # Plate is flat — its Z is depth, Y is height when card stands upright.
+                        # Map figure anchor_z → plate Y: plate_y = (anchor_z - z_bottom) + plate_y_min
                         plate_targets = [
                             "card_model.stl",
                             f"{job_id}.stl",
@@ -719,29 +715,29 @@ Make it visually interesting but not too busy - it should complement, not overwh
                         for stl_name in plate_targets:
                             stl_path = os.path.join(output_dir, stl_name)
                             if not os.path.exists(stl_path):
-                                logger.warning(f"[ORDER {job_id}] Magnet-Drill: {stl_name} nicht gefunden — skip")
+                                logger.warning(f"[ORDER {job_id}] Magnet drill: {stl_name} not found — skip")
                                 continue
 
-                            # Calculate aligned center_y + spacing_y based on figure magnet positions
+                            center_x_str = "0"
                             center_y_str = "0"
-                            spacing_y_str = "20"  # default 40mm apart
-                            if figure_z_positions and len(figure_z_positions) == 2 and figure_z_bottom is not None:
+                            spacing_x_str = "20"
+                            if figure_info:
                                 try:
                                     import trimesh as _tm
                                     pm = _tm.load(stl_path, force="mesh")
                                     plate_y_min = float(pm.bounds[0, 1])
-                                    # Welt-Höhen der 2 Figur-Magnete
-                                    wh1 = figure_z_positions[0] - figure_z_bottom
-                                    wh2 = figure_z_positions[1] - figure_z_bottom
-                                    py1 = wh1 + plate_y_min
-                                    py2 = wh2 + plate_y_min
-                                    cy = (py1 + py2) / 2.0
-                                    sy = abs(py2 - py1) / 2.0
-                                    center_y_str = f"{cy:.2f}"
-                                    spacing_y_str = f"{sy:.2f}"
-                                    logger.info(f"[ORDER {job_id}] {stl_name}: aligned plate-Y = {py1:.1f}, {py2:.1f} (center_y={cy:.1f}, spacing={sy:.1f})")
+                                    anchor_z = figure_info.get('anchor_z', 0)
+                                    z_bottom = figure_info.get('z_bottom', 0)
+                                    world_height = anchor_z - z_bottom
+                                    plate_y = world_height + plate_y_min
+                                    center_x_str = f"{figure_info.get('center_x', 0):.2f}"
+                                    center_y_str = f"{plate_y:.2f}"
+                                    x_positions = figure_info.get('x_positions', [])
+                                    if len(x_positions) == 2:
+                                        spacing_x_str = f"{abs(x_positions[1] - x_positions[0]):.2f}"
+                                    logger.info(f"[ORDER {job_id}] {stl_name}: plate center_x={center_x_str}, center_y={center_y_str}, spacing_x={spacing_x_str}")
                                 except Exception as ae:
-                                    logger.warning(f"[ORDER {job_id}] Alignment-Calc failed für {stl_name}: {ae} — fallback to defaults")
+                                    logger.warning(f"[ORDER {job_id}] Plate alignment calc failed for {stl_name}: {ae} — using defaults")
 
                             magnet_proc = subprocess.run([
                                 "/workspace/SimpleMe/venv/bin/python",
@@ -750,15 +746,15 @@ Make it visually interesting but not too busy - it should complement, not overwh
                                 "--output", stl_path,
                                 "--magnet-diameter", "6",
                                 "--magnet-height",   "2",
-                                "--center-x",        "0",
+                                "--center-x",        center_x_str,
                                 "--center-y",        center_y_str,
-                                "--spacing-y",       spacing_y_str,
+                                "--spacing-x",       spacing_x_str,
                                 "--side",            "top",
                             ], capture_output=True, text=True, timeout=180)
                             if magnet_proc.returncode == 0:
-                                logger.info(f"[ORDER {job_id}] ✅ Plate-Magnete in {stl_name} (Vorderseite, 2× 6×2mm, aligned)")
+                                logger.info(f"[ORDER {job_id}] ✅ Plate magnets drilled in {stl_name} (2× 6×2mm, side-by-side)")
                             else:
-                                logger.error(f"[ORDER {job_id}] ❌ Plate-Drill {stl_name}: {magnet_proc.stderr[:500]}")
+                                logger.error(f"[ORDER {job_id}] ❌ Plate drill {stl_name}: {magnet_proc.stderr[:500]}")
                     except Exception as e:
                         logger.error(f"[ORDER {job_id}] Magnet-Drill exception: {e}")
                     # Map key outputs
