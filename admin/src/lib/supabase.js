@@ -5,4 +5,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIU
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://2kp8w7f44qtbew-8000.proxy.runpod.net'
+function getApiBaseUrl() {
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL
+  const { hostname, protocol } = window.location
+  if (hostname.includes('.proxy.runpod.net')) {
+    return `${protocol}//${hostname.replace(/-\d+\.proxy\.runpod\.net/, '-8000.proxy.runpod.net')}`
+  }
+  return 'http://localhost:8000'
+}
+export const API_BASE_URL = getApiBaseUrl()

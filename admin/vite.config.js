@@ -7,11 +7,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    allowedHosts: ['fx0gkeg8z4cfmv-5173.proxy.runpod.net'],
-    hmr: {
-      clientPort: 443,
-      host: 'fx0gkeg8z4cfmv-5173.proxy.runpod.net',
-      protocol: 'wss',
-    },
+    allowedHosts: 'all',
+    hmr: false,
   },
 })
