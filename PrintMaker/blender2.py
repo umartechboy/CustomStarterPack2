@@ -970,8 +970,20 @@ def _make_temp_mesh_from_obj(obj):
         return None
 
     # copy into a real datablock we can link
+    # Blender 5.x removed Mesh.from_mesh() — use bmesh round-trip
     me_real = bpy.data.meshes.new(obj.name + "_TmpMesh")
-    me_real.from_mesh(me_eval)
+    try:
+        # Modern path: bmesh round-trip
+        import bmesh as _bm
+        _b = _bm.new()
+        _b.from_mesh(me_eval)
+        _b.to_mesh(me_real)
+        _b.free()
+    except Exception:
+        # Fallback: clone datablock directly
+        bpy.data.meshes.remove(me_real)
+        me_real = me_eval.copy()
+        me_real.name = obj.name + "_TmpMesh"
     eo.to_mesh_clear()
 
     tmp = bpy.data.objects.new(obj.name + "_Tmp", me_real)
@@ -1040,7 +1052,12 @@ def _try_addon_export_stl(path_stl: str) -> bool:
     bpy.context.view_layer.objects.active = export_objs[0]
 
     try:
-        # operator name is standard when add-on is present
+        # Blender 4.x+: prefer bpy.ops.wm.stl_export (built-in, no addon needed)
+        if hasattr(bpy.ops, "wm") and hasattr(bpy.ops.wm, "stl_export"):
+            bpy.ops.wm.stl_export(filepath=path_stl, export_selected_objects=True, ascii_format=False)
+            print(f"[OK] Combined STL (wm.stl_export): {path_stl}")
+            return True
+        # Legacy Blender 3.x: addon-based export
         if hasattr(bpy.ops, "export_mesh") and hasattr(bpy.ops.export_mesh, "stl"):
             bpy.ops.export_mesh.stl(filepath=path_stl, use_selection=True, ascii=False)
             print(f"[OK] Combined STL (add-on): {path_stl}")

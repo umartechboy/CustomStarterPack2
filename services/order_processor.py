@@ -196,24 +196,35 @@ class OrderProcessor:
         figure_img = None
         accessory_imgs = []
 
-        # Look for ORIGINAL generated images (high quality, transparent background)
+        # Look for ORIGINAL generated images (high quality, transparent background).
+        # Deduplicate by accessory number — keep the latest file per number so that
+        # orders retried with image regeneration don't end up with all slots pointing
+        # at accessory_1 (which sorts before accessory_2/3 alphabetically).
         generated_dir = f"./storage/generated/{os.path.basename(job_dir)}"
         if os.path.exists(generated_dir):
+            acc_by_num = {}  # num_str -> file_path (last wins = most recent timestamp)
             for f in sorted(os.listdir(generated_dir)):
                 if f.endswith('.png') and '_texture' not in f:
                     file_path = os.path.join(generated_dir, f)
                     if 'base_character' in f:
                         figure_img = {
                             "file_path": file_path,
-                            "original_path": file_path,  # Original GPT image for Blender
+                            "original_path": file_path,
                             "type": "base_character"
                         }
                     elif 'accessory' in f:
-                        accessory_imgs.append({
-                            "file_path": file_path,
-                            "original_path": file_path,  # Original GPT image for Blender
-                            "type": "accessory"
-                        })
+                        try:
+                            num = f.split('accessory_')[1].split('_')[0]
+                            acc_by_num[num] = file_path
+                        except Exception:
+                            acc_by_num[f] = file_path  # fallback key
+            for num in sorted(acc_by_num.keys()):
+                file_path = acc_by_num[num]
+                accessory_imgs.append({
+                    "file_path": file_path,
+                    "original_path": file_path,
+                    "type": "accessory"
+                })
 
         # Check for nobg versions and ADD them as nobg_path (don't replace original!)
         nobg_figure = os.path.join(job_dir, "figure_nobg.png")
@@ -445,11 +456,20 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     # Use nobg images for depth maps
                     acc_depth_img = acc_img.get("nobg_path") or acc_img.get("file_path")
 
+                    # Clean alpha mask: hard threshold + drop tiny noise islands.
+                    # Prevents halftone/background residue from becoming relief artifacts on plate.
+                    try:
+                        from services.clean_alpha import clean as _clean_alpha
+                        _clean_alpha(acc_depth_img, acc_depth_img)
+                        logger.info(f"[ORDER {job_id}] Cleaned alpha mask for {acc_name}")
+                    except Exception as _ce:
+                        logger.warning(f"[ORDER {job_id}] clean_alpha skipped for {acc_name}: {_ce}")
+
                     acc_depth_result = await self._sculptok_client.process_image_to_depth_map(
                         image_path=acc_depth_img,
                         output_dir=job_dir,
                         image_name=acc_name,
-                        skip_bg_removal=True,  # Already removed background
+                        skip_bg_removal=False,  # Let Sculptok remove background → black depth map background, no raised platforms
                         style="pro",
                         version="1.5",
                         draw_hd="4k",
@@ -644,9 +664,9 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     # ============================================================
                     try:
                         repair_targets = [
-                            ("card_figure.stl", 0.3),  # 0.3mm voxel = garantiert watertight (manifold-Boolean braucht is_volume)
-                            ("card_model.stl",  0.4),
-                            (f"{job_id}.stl",   0.4),  # 2.5D-Relief-Karte (Hauptplatte)
+                            ("card_figure.stl", 0.3),  # 0.3mm voxel — figure has fine features, must stay clean
+                            ("card_model.stl",  0.25), # 0.25mm voxel — was 0.4, smaller for cleaner relief detail
+                            (f"{job_id}.stl",   0.25), # 0.25mm voxel — was 0.4, the main 2.5D plate gets the finest grid
                         ]
                         for stl_name, vsize in repair_targets:
                             stl_path = os.path.join(output_dir, stl_name)

@@ -43,7 +43,7 @@ class AIImageGenerator:
         EMPTY_VALUES = {"", "-", "—", "–", "none", "keine", "kein"}
         for i, accessory in enumerate(accessories, 1):
             if not accessory or accessory.strip().lower() in EMPTY_VALUES:
-                print(f"[ai_image_gen] skipping accessory_{i} (empty/placeholder: '{accessory}')")
+                print(f"[ai_image_gen] skipping accessory_{i} (empty/placeholder: '{accessory_en}')")
                 continue
             accessory_prompt = self._build_accessory_prompt(accessory)
             accessory_result = await self._generate_accessory_image(
@@ -180,6 +180,44 @@ OUTPUT QUALITY:
 
 CRITICAL: This is for UV PRINTING - colors must be vibrant and accurate. Face must be IDENTICAL to input photo. Hyperrealistic quality, not stylized or cartoon."""
 
+    # DE→EN translations to prevent GPT from interpreting German words as labels/prints on objects.
+    # Covers most common gift/object words customers type. Missing → falls through unchanged.
+    _DE_TO_EN = {
+        'hund': 'dog', 'katze': 'cat', 'pferd': 'horse', 'vogel': 'bird',
+        'fisch': 'fish', 'hase': 'rabbit', 'kaninchen': 'rabbit', 'maus': 'mouse',
+        'fussball': 'soccer ball', 'fußball': 'soccer ball', 'ball': 'ball',
+        'basketball': 'basketball', 'tennisball': 'tennis ball',
+        'gitarre': 'electric guitar', 'klavier': 'piano', 'trompete': 'trumpet',
+        'kopfhörer': 'headphones', 'kopfhoerer': 'headphones',
+        'kamera': 'professional camera', 'fotoapparat': 'professional camera',
+        'auto': 'car', 'motorrad': 'motorcycle', 'fahrrad': 'bicycle', 'flugzeug': 'airplane',
+        'buch': 'book', 'rucksack': 'backpack', 'tasche': 'handbag', 'koffer': 'suitcase',
+        'krone': 'royal crown', 'ring': 'diamond ring', 'kette': 'gold necklace',
+        'uhr': 'wristwatch', 'sonnenbrille': 'sunglasses', 'brille': 'eyeglasses',
+        'schuhe': 'sneakers', 'schuh': 'sneaker', 'mütze': 'baseball cap', 'muetze': 'baseball cap',
+        'hut': 'fedora hat', 'helm': 'racing helmet',
+        'blume': 'rose flower', 'rose': 'rose flower', 'baum': 'tree',
+        'apfel': 'apple', 'banane': 'banana', 'pizza': 'pizza slice',
+        'kaffee': 'coffee cup', 'tee': 'tea cup', 'bier': 'beer mug', 'wein': 'wine glass',
+        'krügerl': 'beer mug', 'kruegerl': 'beer mug', 'cocktail': 'cocktail glass',
+        'schnitzel': 'wiener schnitzel', 'burger': 'hamburger',
+        'geld': 'stack of dollar bills', 'goldbarren': 'gold bar',
+        'laptop': 'silver laptop', 'handy': 'smartphone', 'smartphone': 'smartphone',
+        'controller': 'gaming controller', 'konsole': 'gaming console',
+        'mikrofon': 'studio microphone', 'lautsprecher': 'speaker',
+        'pokal': 'gold trophy', 'medaille': 'gold medal',
+        'herz': 'red heart', 'stern': 'gold star',
+        'gewicht': 'dumbbell', 'hantel': 'dumbbell', 'kettlebell': 'kettlebell',
+        'yoga': 'yoga mat', 'matte': 'yoga mat',
+        'pfote': 'paw print', 'knochen': 'dog bone',
+        'reisepass': 'passport', 'führerschein': 'driver license',
+    }
+
+    def _translate_accessory(self, accessory: str) -> str:
+        """Map German object word to English noun phrase for accurate GPT-Image generation."""
+        key = (accessory or '').strip().lower()
+        return self._DE_TO_EN.get(key, accessory)
+
     def _build_accessory_prompt(self, accessory: str) -> str:
         """Build hyperrealistic accessory prompt optimized for UV printing and 3D conversion.
 
@@ -189,10 +227,16 @@ CRITICAL: This is for UV PRINTING - colors must be vibrant and accurate. Face mu
         - Clean edges for 2.5D lithophane conversion
         - Proper lighting for depth map generation
         """
-        return f"""Create a HYPERREALISTIC {accessory} for UV printing:
+        accessory_en = self._translate_accessory(accessory)
+        return f"""Create a HYPERREALISTIC {accessory_en} for UV printing:
+
+INTERPRETATION NOTE:
+- '{accessory_en}' refers to the literal physical object/animal/item itself
+- Do NOT add text, labels, prints, brand logos, or written words on or near the object
+- The object is the subject — render it as a photograph of the real thing, not a labeled product
 
 ACCESSORY REQUIREMENTS:
-- ONLY ONE single {accessory} in the image - no duplicates, no multiple items
+- ONLY ONE single {accessory_en} in the image - no duplicates, no multiple items
 - PHOTOREALISTIC quality - should look like a professional product photograph
 - Hyperrealistic materials with visible surface details, textures, and imperfections
 - Real-world accurate proportions and scale
@@ -240,7 +284,7 @@ OUTPUT QUALITY:
 - Print-ready vibrant colors
 - Clean silhouette for easy background separation
 
-CRITICAL: Generate exactly ONE hyperrealistic {accessory} - single item only, flat lay angle from above, NO SHADOWS, centered, complete, photorealistic quality for UV printing."""
+CRITICAL: Generate exactly ONE hyperrealistic {accessory_en} - single item only, flat lay angle from above, NO SHADOWS, centered, complete, photorealistic quality for UV printing. The object itself is what's rendered, NOT a label or print of the word."""
 
     async def _generate_from_user_image(self, job_id: str, user_image_path: str, prompt: str, image_type: str,
                                        output_dir: str) -> Dict:
