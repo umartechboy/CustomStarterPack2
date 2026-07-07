@@ -275,10 +275,10 @@ class Program
         Subtitle: subtitle,
         renderResx: renderResx,
         renderResy: renderResy,
-        JigsRequested: "+Z,-Z,+X,-X,+Y,-Y",
+        JigsRequested: "+U,-U",
         OverlapX: 25.0,
         OverlapY: 8.0,
-        OverlapZ: 25.0,
+        OverlapZ: 2.0,
         InflationMargin: 0.4,
         GridHeight: 50.0
     )

@@ -118,14 +118,16 @@ def apply_universal_cylindrical_trim(final_jig, jig_min, jig_max):
     apply_boolean(final_jig, tube, 'DIFFERENCE')
     return cx, cy
 
-def build_twist_lock_connector(center_x, center_y, base_z):
+def build_twist_lock_connector(center_x, center_y, base_z, outward_sign=1.0):
     """
     Rebuilds the OpenSCAD twist-lock connector (body_a - body_b) in Blender.
-    OpenSCAD local z=0 maps to world base_z; the body extends in +Z from there
-    (away from the jig), sharing the (center_x, center_y) axis of the cylindrical trim.
+    OpenSCAD local z=0 maps to world base_z; the body extends toward
+    outward_sign * Z from there (away from the jig, mirrored via outward_sign
+    when the flat face is on the -Z/bottom side instead of +Z/top), sharing
+    the (center_x, center_y) axis of the cylindrical trim.
     """
     def world_z(local_z):
-        return base_z + local_z
+        return base_z + outward_sign * local_z
 
     # body_a: washer, r11 outer / r6.5 inner, local z 0..2
     a_outer = create_cylinder("BodyA_Outer", radius=11.0, depth=2.0,
@@ -158,24 +160,42 @@ def build_twist_lock_connector(center_x, center_y, base_z):
     connector.name = "Universal_Connector"
     return connector
 
-def apply_universal_cone_pierce(final_jig, jig_min, jig_max, center_x, center_y):
+def append_solid_cylinder(final_jig, center_x, center_y, flat_face_z, outward_sign, radius, height):
     """
-    Pierces a 60-degree (included-angle) centering cone into the jig, starting
-    3mm inside the -Z flat face and boring toward +Z. Base diameter is 24mm
-    (> the 22mm bore); height is derived from the 60-degree cone angle so the
-    cone tapers to a point.
+    Unions a solid cylinder onto the jig at flat_face_z, extending outward_sign * Z
+    by `height`, thickening the jig there. Returns the new outer flat_face_z.
     """
-    cone_diameter = 24.0  # > 22mm bore
-    cone_radius = cone_diameter / 2.0
+    new_face_z = flat_face_z + outward_sign * height
+    boss = create_cylinder("Boss_Solid", radius=radius, depth=height,
+                            location=(center_x, center_y, (flat_face_z + new_face_z) / 2.0))
+    apply_boolean(final_jig, boss, 'UNION')
+    return new_face_z
+
+def apply_universal_cone_pierce(final_jig, center_x, center_y, flat_face_z, inward_sign=1.0, pierce_depth=1.0):
+    """
+    Pierces a simple 60-degree (included-angle) point into the jig: the tip sits
+    pierce_depth inside the material (inward_sign * Z from flat_face_z), and the
+    cone widens moving the opposite way (back out past flat_face_z into open
+    space, where it has no effect since there's no material left to cut there).
+    Base radius (24mm dia) only sets the angle's rate of widening past the tip;
+    it doesn't need to fit inside the jig.
+    inward_sign = +1.0 when flat_face_z is the -Z/bottom face (material is +Z from it),
+    -1.0 when flat_face_z is the +Z/top face (material is -Z from it).
+    """
+    cone_radius = 12.0  # 24mm dia, just sets the cone's opening rate via the angle
     half_angle = math.radians(30.0)  # 60-degree included angle -> 30-degree half-angle
     cone_height = cone_radius / math.tan(half_angle)
 
-    base_z = jig_min[2] + 3.0
-    apex_z = base_z + cone_height
+    tip_z = flat_face_z + inward_sign * pierce_depth       # the point, just inside the material
+    wide_z = tip_z - inward_sign * cone_height              # widens back outward, past the face
+
+    low_z, high_z = min(tip_z, wide_z), max(tip_z, wide_z)
+    radius1 = 0.0 if tip_z < wide_z else cone_radius  # radius at the -Z (lower) end
+    radius2 = cone_radius if tip_z < wide_z else 0.0  # radius at the +Z (upper) end
 
     bpy.ops.mesh.primitive_cone_add(
-        radius1=cone_radius, radius2=0.0, depth=cone_height,
-        location=(center_x, center_y, (base_z + apex_z) / 2.0), vertices=100
+        radius1=radius1, radius2=radius2, depth=(high_z - low_z),
+        location=(center_x, center_y, (low_z + high_z) / 2.0), vertices=100
     )
     cone = bpy.context.active_object
     cone.name = "UCone_Cutter"
@@ -342,11 +362,17 @@ def generate_jig_in_place(
     if direction in ('+U', '-U'):
         print(f"   -> Applying Universal Jig post-process ({direction})...")
         cx, cy = apply_universal_cylindrical_trim(final_jig, jig_min, jig_max)
-        if direction == '-U':
-            connector = build_twist_lock_connector(cx, cy, base_z=jig_max[2])
+        if direction == '+U':
+            # Flat face is at jig_min.z (bottom); connector extends away from the jig, toward -Z.
+            connector = build_twist_lock_connector(cx, cy, base_z=jig_min[2], outward_sign=-1.0)
             apply_boolean(final_jig, connector, 'UNION')
-        elif direction == '+U':
-            apply_universal_cone_pierce(final_jig, jig_min, jig_max, cx, cy)
+        elif direction == '-U':
+            # Flat face is at jig_max.z (top); outward is +Z. Thicken by 2mm first
+            # with a 22mm-dia boss (matching the bore ID), then pierce the cone into
+            # the material (-Z).
+            new_face_z = append_solid_cylinder(final_jig, cx, cy, flat_face_z=jig_max[2],
+                                                outward_sign=1.0, radius=11.0, height=2.0)
+            apply_universal_cone_pierce(final_jig, cx, cy, flat_face_z=new_face_z, inward_sign=-1.0, pierce_depth=3.0)
 
     # 9. Cleanup
     bpy.data.objects.remove(working_model, do_unlink=True)
