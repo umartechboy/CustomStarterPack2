@@ -349,9 +349,11 @@ Keep the exact same composition and elements, but add more details and improve q
 Output should be suitable as a background for an action figure card."""
 
                         with open(bg_input_path, "rb") as f:
+                            _fn = os.path.basename(bg_input_path)
+                            _mt = "image/jpeg" if _fn.lower().endswith((".jpg",".jpeg")) else ("image/webp" if _fn.lower().endswith(".webp") else "image/png")
                             response = client.images.edit(
                                 model="gpt-image-1.5",
-                                image=f,
+                                image=(_fn, f, _mt),
                                 prompt=enhance_prompt,
                                 size="1024x1024"
                             )

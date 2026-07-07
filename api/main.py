@@ -2346,9 +2346,11 @@ Make it suitable for UV printing at 300 DPI.
 Do not change the subject or composition - only enhance quality and details."""
 
                     with open(bg_input_path, 'rb') as img_file:
+                        _fn = os.path.basename(bg_input_path)
+                        _mt = "image/jpeg" if _fn.lower().endswith((".jpg",".jpeg")) else ("image/webp" if _fn.lower().endswith(".webp") else "image/png")
                         response = client.images.edit(
                             model="gpt-image-1.5",
-                            image=img_file,
+                            image=(_fn, img_file, _mt),
                             prompt=enhance_prompt,
                             size="1024x1536",
                             quality="high",

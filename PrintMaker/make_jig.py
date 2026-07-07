@@ -74,6 +74,114 @@ def create_box(name, min_bounds, max_bounds):
     return box
 
 # ==========================================
+# HELPERS: CYLINDER PRIMITIVE + BOOLEAN OP
+# ==========================================
+def create_cylinder(name, radius, depth, location=(0.0, 0.0, 0.0), verts=100):
+    """Creates a Z-axis cylinder of given radius/depth, centered at location."""
+    bpy.ops.mesh.primitive_cylinder_add(
+        radius=radius, depth=depth, location=location, vertices=verts
+    )
+    cyl = bpy.context.active_object
+    cyl.name = name
+    return cyl
+
+def apply_boolean(target, cutter, operation='DIFFERENCE'):
+    """Applies a boolean modifier to target using cutter, applies it, deletes cutter."""
+    mod = target.modifiers.new(type="BOOLEAN", name=f"Bool_{operation}")
+    mod.object = cutter
+    mod.operation = operation
+    mod.solver = 'EXACT'
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cutter, do_unlink=True)
+    return target
+
+# ==========================================
+# UNIVERSAL JIG (+U / -U) POST-PROCESS
+# ==========================================
+def apply_universal_cylindrical_trim(final_jig, jig_min, jig_max):
+    """
+    Subtracts a hollow cylinder (ID 22mm / OD 200mm) from the jig, centered on
+    the jig's X/Y center, spanning its full Z range + 2mm. Trims the jig's
+    sides into a cylindrical form.
+    Returns (cx, cy) so downstream pieces can share the same center axis.
+    """
+    cx = (jig_min[0] + jig_max[0]) / 2.0
+    cy = (jig_min[1] + jig_max[1]) / 2.0
+    cz = (jig_min[2] + jig_max[2]) / 2.0
+    tube_height = (jig_max[2] - jig_min[2]) + 2.0
+
+    outer = create_cylinder("UTrim_Outer", radius=100.0, depth=tube_height, location=(cx, cy, cz))
+    inner = create_cylinder("UTrim_Inner", radius=11.0, depth=tube_height + 2.0, location=(cx, cy, cz))
+    tube = apply_boolean(outer, inner, 'DIFFERENCE')  # hollow cylinder / annulus
+
+    apply_boolean(final_jig, tube, 'DIFFERENCE')
+    return cx, cy
+
+def build_twist_lock_connector(center_x, center_y, base_z):
+    """
+    Rebuilds the OpenSCAD twist-lock connector (body_a - body_b) in Blender.
+    OpenSCAD local z=0 maps to world base_z; the body extends in +Z from there
+    (away from the jig), sharing the (center_x, center_y) axis of the cylindrical trim.
+    """
+    def world_z(local_z):
+        return base_z + local_z
+
+    # body_a: washer, r11 outer / r6.5 inner, local z 0..2
+    a_outer = create_cylinder("BodyA_Outer", radius=11.0, depth=2.0,
+                               location=(center_x, center_y, world_z(1.0)))
+    a_inner = create_cylinder("BodyA_Inner", radius=6.5, depth=6.0,
+                               location=(center_x, center_y, world_z(1.0)))
+    body_a = apply_boolean(a_outer, a_inner, 'DIFFERENCE')
+
+    # body_b: keyed peg, r9.5, local z -1..3, minus 3 boxes
+    body_b = create_cylinder("BodyB", radius=9.5, depth=4.0,
+                              location=(center_x, center_y, world_z(1.0)))
+
+    def cut_box(target, size_x, size_y, size_z, local_center):
+        bpy.ops.mesh.primitive_cube_add(size=1, location=(
+            center_x + local_center[0], center_y + local_center[1], world_z(local_center[2])
+        ))
+        box = bpy.context.active_object
+        box.scale = (size_x, size_y, size_z)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        return apply_boolean(target, box, 'DIFFERENCE')
+
+    # translate([0,-23/2,-2]) cube([12,23,6])       -> local center (6, 0, 1)
+    body_b = cut_box(body_b, 12, 23, 6, (6.0, 0.0, 1.0))
+    # translate([-23/2,-12,-2]) cube([23,9.7,6])    -> local center (0, -7.15, 1)
+    body_b = cut_box(body_b, 23, 9.7, 6, (0.0, -12.0 + 9.7 / 2.0, 1.0))
+    # translate([-23/2,2.3,-2]) cube([23,9.7,6])    -> local center (0, 7.15, 1)
+    body_b = cut_box(body_b, 23, 9.7, 6, (0.0, 2.3 + 9.7 / 2.0, 1.0))
+
+    connector = apply_boolean(body_a, body_b, 'DIFFERENCE')
+    connector.name = "Universal_Connector"
+    return connector
+
+def apply_universal_cone_pierce(final_jig, jig_min, jig_max, center_x, center_y):
+    """
+    Pierces a 60-degree (included-angle) centering cone into the jig, starting
+    3mm inside the -Z flat face and boring toward +Z. Base diameter is 24mm
+    (> the 22mm bore); height is derived from the 60-degree cone angle so the
+    cone tapers to a point.
+    """
+    cone_diameter = 24.0  # > 22mm bore
+    cone_radius = cone_diameter / 2.0
+    half_angle = math.radians(30.0)  # 60-degree included angle -> 30-degree half-angle
+    cone_height = cone_radius / math.tan(half_angle)
+
+    base_z = jig_min[2] + 3.0
+    apex_z = base_z + cone_height
+
+    bpy.ops.mesh.primitive_cone_add(
+        radius1=cone_radius, radius2=0.0, depth=cone_height,
+        location=(center_x, center_y, (base_z + apex_z) / 2.0), vertices=100
+    )
+    cone = bpy.context.active_object
+    cone.name = "UCone_Cutter"
+    apply_boolean(final_jig, cone, 'DIFFERENCE')
+
+# ==========================================
 # CORE 3D SPATIAL JIG FUNCTION
 # ==========================================
 def generate_jig_in_place(
@@ -117,7 +225,21 @@ def generate_jig_in_place(
         cut_min = (-inf, -inf, -inf)
         cut_max = (inf, inf, mod_max[2] - overlap - clearance)
         sweep_vec = mathutils.Vector((0, 0, -1))
-        
+
+    elif direction == '+U': # Universal Jig (copy of +Z, Jig on Bottom)
+        jig_min = (master_min[0], master_min[1], mod_min[2] - bottom_thickness)
+        jig_max = (master_max[0], master_max[1], mod_min[2] + overlap)
+        cut_min = (-inf, -inf, mod_min[2] + overlap + clearance)
+        cut_max = (inf, inf, inf)
+        sweep_vec = mathutils.Vector((0, 0, 1))
+
+    elif direction == '-U': # Universal Jig (copy of -Z, Jig on Top)
+        jig_min = (master_min[0], master_min[1], mod_max[2] - overlap)
+        jig_max = (master_max[0], master_max[1], mod_max[2] + bottom_thickness)
+        cut_min = (-inf, -inf, -inf)
+        cut_max = (inf, inf, mod_max[2] - overlap - clearance)
+        sweep_vec = mathutils.Vector((0, 0, -1))
+
     elif direction == '+X': # Jig on Left
         jig_min = (mod_min[0] - bottom_thickness, master_min[1], master_min[2])
         jig_max = (mod_min[0] + overlap, master_max[1], master_max[2])
@@ -213,8 +335,18 @@ def generate_jig_in_place(
     final_cut.object = master_cutter
     final_cut.operation = 'DIFFERENCE'
     final_cut.solver = 'EXACT' 
-    final_cut.double_threshold = 0.0001 
+    final_cut.double_threshold = 0.0001
     bpy.ops.object.modifier_apply(modifier=final_cut.name)
+
+    # 8.5 UNIVERSAL JIG (+U / -U) POST-PROCESS
+    if direction in ('+U', '-U'):
+        print(f"   -> Applying Universal Jig post-process ({direction})...")
+        cx, cy = apply_universal_cylindrical_trim(final_jig, jig_min, jig_max)
+        if direction == '-U':
+            connector = build_twist_lock_connector(cx, cy, base_z=jig_max[2])
+            apply_boolean(final_jig, connector, 'UNION')
+        elif direction == '+U':
+            apply_universal_cone_pierce(final_jig, jig_min, jig_max, cx, cy)
 
     # 9. Cleanup
     bpy.data.objects.remove(working_model, do_unlink=True)
