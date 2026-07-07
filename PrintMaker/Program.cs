@@ -45,6 +45,8 @@ class Program
             float minStickerSizes_smm = 10f;    // --min_sticker_mm
             float cuttingMargin_mm = 0.0f;         // --cut_margin_mm
             int cutSmoothing_px = 5;
+            string jigsRequested = "+U,-U";     // --jigs_requested
+            double overlapZ_mm = 2.0;           // --overlap_z_mm
 
 
             //// If no args or null -> help
@@ -53,7 +55,7 @@ class Program
 
             // ---- parse CLI (--key value OR --key=value), validate keys ----
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle" };
+    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle", "--jigs_requested", "--overlap_z_mm" };
 
             var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < args.Length; i++)
@@ -119,6 +121,16 @@ class Program
                 if (!float.TryParse(sCut, out var vCut) || vCut < 0)
                     return PrintHelp("Invalid --cut_margin_mm. Use a non-negative number.");
                 cuttingMargin_mm = vCut;
+            }
+
+            if (kv.TryGetValue("--jigs_requested", out var sJigs) && !string.IsNullOrWhiteSpace(sJigs))
+                jigsRequested = sJigs.Trim().Trim('"');
+
+            if (kv.TryGetValue("--overlap_z_mm", out var sOverlapZ))
+            {
+                if (!double.TryParse(sOverlapZ, out var vOverlapZ) || vOverlapZ < 0)
+                    return PrintHelp("Invalid --overlap_z_mm. Use a non-negative number.");
+                overlapZ_mm = vOverlapZ;
             }
 
             // ---- derived paths ----
@@ -209,7 +221,9 @@ class Program
                 layoutOnly: false,
                 renderResx: isDebug ? resXyInDebug: 2000,
                 renderResy: isDebug ? resXyInDebug: 2000,
-                dontCreateBoundaries: true),
+                dontCreateBoundaries: true,
+                jigsRequested: jigsRequested,
+                overlapZ_mm: overlapZ_mm),
 
             };
 
@@ -242,7 +256,7 @@ class Program
         //    return 1;
         //}
     }
-    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries)
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries, string jigsRequested = "+U,-U", double overlapZ_mm = 2.0)
     {
         if (isDebug && !nameSeed.Contains(makeArtifactInDebug) && dontRunJigsInDebug && dontRunBlender2PyInDebug)
         {
@@ -275,10 +289,10 @@ class Program
         Subtitle: subtitle,
         renderResx: renderResx,
         renderResy: renderResy,
-        JigsRequested: "+U,-U",
+        JigsRequested: jigsRequested,
         OverlapX: 25.0,
         OverlapY: 8.0,
-        OverlapZ: 2.0,
+        OverlapZ: overlapZ_mm,
         InflationMargin: 0.4,
         GridHeight: 50.0
     )
@@ -597,6 +611,8 @@ Optional:
   --min_sticker_mm <float>  Minimum sticker size in square mm (default: 10)
   --cut_margin_mm <float>   Extra cut margin (bleed) in mm (default: 1)
   --cut_smoothing <float>   Smoothen the cut (default: 10 (iterations))
+  --jigs_requested <list>   Comma-separated jig directions to generate (default: +U,-U)
+  --overlap_z_mm <float>    Jig overlap in mm, controls plate depth (default: 2)
 
 Examples:
   PrintMaker --job 001

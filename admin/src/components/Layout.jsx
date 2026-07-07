@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Package, FlaskConical } from 'lucide-react'
+import { LayoutDashboard, Package, FlaskConical, Settings as SettingsIcon } from 'lucide-react'
 
 export default function Layout() {
   const location = useLocation()
@@ -8,6 +8,7 @@ export default function Layout() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/orders', icon: Package, label: 'Orders' },
     { path: '/test', icon: FlaskConical, label: 'Test Orders' },
+    { path: '/settings', icon: SettingsIcon, label: 'Settings' },
   ]
 
   return (

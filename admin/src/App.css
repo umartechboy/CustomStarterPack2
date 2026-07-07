@@ -867,6 +867,7 @@ tr:hover td {
 }
 
 .form-group input[type="text"],
+.form-group input[type="number"],
 .form-group input[type="file"],
 .form-group select,
 .form-group textarea {
@@ -893,6 +894,31 @@ tr:hover td {
 }
 
 .form-group select {
+  cursor: pointer;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 10px;
+}
+
+.checkbox-item {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 0 !important;
+}
+
+.checkbox-item input[type="checkbox"] {
+  width: auto;
   cursor: pointer;
 }
 

@@ -530,7 +530,7 @@ export default function OrderDetail() {
           {/* ---- Card Jigs ---- */}
           {files?.outputs?.card?.jigs?.length > 0 && (() => {
             const variant = files.outputs.card
-            const axes = ['X', 'Y', 'Z']
+            const axes = ['X', 'Y', 'Z', 'U']
             // Build per-side lookup maps
             const printMap = {}; (variant.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
             const refMap = {}; (variant.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
@@ -603,7 +603,7 @@ export default function OrderDetail() {
           {/* ---- Keychain (toggled) ---- */}
           {showKeychain && files?.outputs?.keychain?.jigs?.length > 0 && (() => {
             const kc = files.outputs.keychain
-            const axes = ['X', 'Y', 'Z']
+            const axes = ['X', 'Y', 'Z', 'U']
             const printMap = {}; (kc.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
             const refMap = {}; (kc.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
             const cutMap = {}; (kc.cutting_files || []).forEach(c => { cutMap[c.side] = c })

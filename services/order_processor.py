@@ -19,6 +19,28 @@ from services.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
+PRINTMAKER_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "printmaker_settings.json")
+
+
+def _load_jig_generation_settings():
+    """Reads the jig_generation section written by the /printmaker/settings admin API.
+    Falls back to the PrintMaker CLI's own defaults (+U,-U / 2mm overlap) if the
+    settings file or section is missing, so a missing/edited-out file doesn't break orders.
+    """
+    import json
+    try:
+        with open(PRINTMAKER_SETTINGS_PATH, "r") as f:
+            data = json.load(f)
+        jig_gen = data.get("jig_generation", {})
+    except (FileNotFoundError, ValueError):
+        jig_gen = {}
+
+    jigs_requested = jig_gen.get("jigs_requested", ["+U", "-U"])
+    if isinstance(jigs_requested, list):
+        jigs_requested = ",".join(jigs_requested)
+    overlap_z_mm = jig_gen.get("overlap_z_mm", 2.0)
+    return jigs_requested, overlap_z_mm
+
 
 class OrderProcessor:
     """Async order processor with queue"""
@@ -616,6 +638,7 @@ Make it visually interesting but not too busy - it should complement, not overwh
                 logger.info(f"[ORDER {job_id}] Copied figure GLB to {pm_figure_path}")
 
                 # Run PrintMaker executable directly
+                jigs_requested, overlap_z_mm = _load_jig_generation_settings()
                 pm_cmd = [
                     settings.PRINTMAKER_EXECUTABLE,
                     "--job", job_id,
@@ -623,6 +646,8 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     "--dpi", str(settings.PRINTMAKER_DPI),
                     "--title", order_data.get("title", "Starter Pack"),
                     "--subtitle", order_data.get("subtitle", ""),
+                    "--jigs_requested", jigs_requested,
+                    "--overlap_z_mm", str(overlap_z_mm),
                 ]
 
                 logger.info(f"[ORDER {job_id}] Running PrintMaker: {' '.join(pm_cmd)}")

@@ -1,0 +1,53 @@
+{
+  "card": {
+    "width_mm": 130,
+    "height_mm": 170,
+    "thickness_mm": 5,
+    "corner_fillet_mm": 3,
+    "upper_ratio": 0.15,
+    "margin_figure_mm": 4,
+    "margin_accessories_mm": 2,
+    "padding_card_mm": 4,
+    "has_hole": false,
+    "text_height_mm": 30
+  },
+  "jig_generation": {
+    "jigs_requested": [
+      "+U",
+      "-U"
+    ],
+    "overlap_z_mm": 2
+  },
+  "mounting_holes": {
+    "figure_hole_diameter_mm": 3.2,
+    "figure_hole_length_mm": 5.5,
+    "magnet_diameter_mm": 5.5,
+    "magnet_height_mm": 2.2,
+    "holes_spacing_mm": 20.0
+  },
+  "text": {
+    "title": "Starter Pack",
+    "subtitle": "Everything You Need",
+    "font_size": 14.0,
+    "text_extrusion_mm": 0.8,
+    "text_lift_mm": -0.2,
+    "font_path": ""
+  },
+  "rendering": {
+    "dpi": 600,
+    "render_resolution_x": 2000,
+    "render_resolution_y": 2000,
+    "min_sticker_size_mm2": 10.0,
+    "cut_margin_mm": 0.0,
+    "cut_smoothing": 5
+  },
+  "keyhole": {
+    "hole_diameter_mm": 6.0,
+    "hole_margin_mm": 4.0,
+    "hole_corner": "top_right"
+  },
+  "shopify": {
+    "webhook_secret": "no_secret",
+    "store_domain": "nuufrk-2n.myshopify.com"
+  }
+}

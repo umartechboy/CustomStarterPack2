@@ -3069,9 +3069,124 @@ async def create_test_shopify_order(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+## ─── PrintMaker Settings API ─────────────────────────────────────────────────
+PRINTMAKER_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "printmaker_settings.json")
+
+def _read_pm_settings():
+    with open(PRINTMAKER_SETTINGS_PATH, "r") as f:
+        return json.load(f)
+
+def _write_pm_settings(data):
+    with open(PRINTMAKER_SETTINGS_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+# Hard-coded factory defaults (match the current Program.cs values)
+PRINTMAKER_DEFAULTS = {
+    "card": {
+        "width_mm": 130, "height_mm": 170, "thickness_mm": 5,
+        "corner_fillet_mm": 3, "upper_ratio": 0.15,
+        "margin_figure_mm": 4, "margin_accessories_mm": 2,
+        "padding_card_mm": 4, "has_hole": False, "text_height_mm": 30
+    },
+    "jig_generation": {
+        "jigs_requested": ["+U", "-U"],
+        "overlap_z_mm": 2.0
+    },
+    "mounting_holes": {
+        "figure_hole_diameter_mm": 3.2, "figure_hole_length_mm": 5.5,
+        "magnet_diameter_mm": 5.5, "magnet_height_mm": 2.2,
+        "holes_spacing_mm": 20.0
+    },
+    "text": {
+        "title": "Starter Pack", "subtitle": "Everything You Need",
+        "font_size": 14.0, "text_extrusion_mm": 0.8,
+        "text_lift_mm": -0.2, "font_path": ""
+    },
+    "rendering": {
+        "dpi": 600, "render_resolution_x": 2000, "render_resolution_y": 2000,
+        "min_sticker_size_mm2": 10.0, "cut_margin_mm": 0.0, "cut_smoothing": 5
+    },
+    "keyhole": {
+        "hole_diameter_mm": 6.0, "hole_margin_mm": 4.0,
+        "hole_corner": "top_right"
+    }
+}
+
+ALL_JIG_DIRECTIONS = ["+Z", "-Z", "+X", "-X", "+Y", "-Y", "+U", "-U"]
+
+
+@app.get("/printmaker/settings")
+async def get_printmaker_settings():
+    """Return current settings and factory defaults."""
+    try:
+        current = _read_pm_settings()
+    except FileNotFoundError:
+        current = {k: dict(v) for k, v in PRINTMAKER_DEFAULTS.items()}
+        _write_pm_settings(current)
+    if "jig_generation" not in current:
+        current["jig_generation"] = dict(PRINTMAKER_DEFAULTS["jig_generation"])
+        _write_pm_settings(current)
+    return {"settings": current, "defaults": PRINTMAKER_DEFAULTS, "jig_directions": ALL_JIG_DIRECTIONS}
+
+
+@app.put("/printmaker/settings")
+async def update_printmaker_settings(request: Request):
+    """Save new settings (partial or full). Missing keys keep current values."""
+    body = await request.json()
+    try:
+        current = _read_pm_settings()
+    except FileNotFoundError:
+        current = {k: dict(v) for k, v in PRINTMAKER_DEFAULTS.items()}
+
+    # Deep-merge incoming into current
+    for section, values in body.items():
+        if section in current and isinstance(values, dict):
+            current[section].update(values)
+        else:
+            current[section] = values
+
+    _write_pm_settings(current)
+    return {"settings": current, "defaults": PRINTMAKER_DEFAULTS, "jig_directions": ALL_JIG_DIRECTIONS}
+
+
+@app.post("/printmaker/settings/reset")
+async def reset_printmaker_settings(request: Request):
+    """Reset settings. Body can specify keys to reset, or empty body resets all.
+    Examples:
+      {} -> reset everything
+      {"sections": ["card", "jig_generation"]} -> reset only those sections
+      {"keys": {"jig_generation": ["overlap_z_mm"]}} -> reset specific keys
+    """
+    body = await request.json() if await request.body() else {}
+    try:
+        current = _read_pm_settings()
+    except FileNotFoundError:
+        current = {k: dict(v) for k, v in PRINTMAKER_DEFAULTS.items()}
+
+    sections_to_reset = body.get("sections")
+    keys_to_reset = body.get("keys")
+
+    if not sections_to_reset and not keys_to_reset:
+        current = {k: dict(v) for k, v in PRINTMAKER_DEFAULTS.items()}
+    elif sections_to_reset:
+        for sec in sections_to_reset:
+            if sec in PRINTMAKER_DEFAULTS:
+                current[sec] = dict(PRINTMAKER_DEFAULTS[sec])
+    elif keys_to_reset:
+        for sec, key_list in keys_to_reset.items():
+            if sec in PRINTMAKER_DEFAULTS and sec in current:
+                for key in key_list:
+                    if key in PRINTMAKER_DEFAULTS[sec]:
+                        current[sec][key] = PRINTMAKER_DEFAULTS[sec][key]
+
+    _write_pm_settings(current)
+    return {"settings": current, "defaults": PRINTMAKER_DEFAULTS, "jig_directions": ALL_JIG_DIRECTIONS}
+
+
 if __name__ == "__main__":
     import uvicorn
-    
+
     logger.info("🚀 Starting SimpleMe API...")
     logger.info(f"🌐 Host: {settings.API_HOST}:{settings.API_PORT}")
     logger.info(f"🔧 Blender executable: {settings.BLENDER_EXECUTABLE}")
