@@ -1812,6 +1812,13 @@ def main():
     # --- Export orthographic jigs if requested ---
     if args.jigs_requested:
         jig_dirs = [d.strip() for d in args.jigs_requested.split(',') if d.strip()]
+        # Universal jigs (+U/-U) have no camera angle of their own (see the
+        # direction ladder below); they still need the six side renders,
+        # so make sure +X/-X/+Y/-Y/+Z/-Z are rendered too whenever a U jig is requested.
+        if any(d in ('+U', '-U') for d in jig_dirs):
+            for extra in ('+X', '-X', '+Y', '-Y', '+Z', '-Z'):
+                if extra not in jig_dirs:
+                    jig_dirs.append(extra)
         if fig and jig_dirs:
             print(f"Rendering orthogonal jig views for {jig_dirs}")
             all_objs = list(bpy.data.objects)
@@ -1911,6 +1918,10 @@ def main():
                     right = up.cross(fwd)
                     ortho_w, ortho_h = h, d
                 
+                else:
+                    print(f"[JIG-RENDER] [WARN] Unbekannte Richtung {d_name} — Render übersprungen")
+                    continue
+
                 cam.matrix_world = mathutils.Matrix((
                     ( right.x, up.x, fwd.x, cam_pos.x ),
                     ( right.y, up.y, fwd.y, cam_pos.y ),

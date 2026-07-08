@@ -532,12 +532,16 @@ export default function OrderDetail() {
             const variant = files.outputs.card
             const axes = ['X', 'Y', 'Z', 'U']
             // Build per-side lookup maps
+            const jigMap = {}; (variant.jigs || []).forEach(j => { jigMap[j.side] = j })
             const printMap = {}; (variant.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
             const refMap = {}; (variant.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
             const cutMap = {}; (variant.cutting_files || []).forEach(c => { cutMap[c.side] = c })
+            // A side can show up via its STL (jigMap) or via a render-only asset
+            // (printMap/refMap/cutMap) when only +U/-U was cut but X/Y/Z were still rendered.
+            const allSides = new Set([...Object.keys(jigMap), ...Object.keys(printMap), ...Object.keys(refMap), ...Object.keys(cutMap)])
             const sides = {}
             axes.forEach(ax => {
-              sides[ax] = variant.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
+              sides[ax] = Array.from(allSides).filter(s => s.endsWith(ax)).sort((a, b) => a.startsWith('+') ? -1 : 1)
             })
             return (
               <>
@@ -546,22 +550,25 @@ export default function OrderDetail() {
                   <div key={ax} style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                      {sides[ax].map(jig => {
-                        const print = printMap[jig.side]
-                        const ref = refMap[jig.side]
-                        const cut = cutMap[jig.side]
+                      {sides[ax].map(side => {
+                        const jig = jigMap[side]
+                        const print = printMap[side]
+                        const ref = refMap[side]
+                        const cut = cutMap[side]
                         return (
-                          <div key={jig.side} className="jig-side-card">
-                            <div className="jig-side-header">{jig.side}</div>
+                          <div key={side} className="jig-side-card">
+                            <div className="jig-side-header">{side}</div>
                             {print && (
                               <div className="jig-side-thumb">
-                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${jig.side}`} />
+                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${side}`} />
                               </div>
                             )}
                             <div className="jig-side-actions">
-                              <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
-                                <Download size={14} /> STL
-                              </button>
+                              {jig && (
+                                <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
+                                  <Download size={14} /> STL
+                                </button>
+                              )}
                               {print && (
                                 <button className="btn btn-small" onClick={() => downloadFile(print.url, print.name)} style={{ background: '#f59e0b' }}>
                                   <Download size={14} /> PNG
@@ -604,12 +611,14 @@ export default function OrderDetail() {
           {showKeychain && files?.outputs?.keychain?.jigs?.length > 0 && (() => {
             const kc = files.outputs.keychain
             const axes = ['X', 'Y', 'Z', 'U']
+            const jigMap = {}; (kc.jigs || []).forEach(j => { jigMap[j.side] = j })
             const printMap = {}; (kc.printing_files || []).filter(p => p.type !== 'reference').forEach(p => { printMap[p.side] = p })
             const refMap = {}; (kc.printing_files || []).filter(p => p.type === 'reference').forEach(p => { refMap[p.side] = p })
             const cutMap = {}; (kc.cutting_files || []).forEach(c => { cutMap[c.side] = c })
+            const allSides = new Set([...Object.keys(jigMap), ...Object.keys(printMap), ...Object.keys(refMap), ...Object.keys(cutMap)])
             const sides = {}
             axes.forEach(ax => {
-              sides[ax] = kc.jigs.filter(j => j.side.endsWith(ax)).sort((a, b) => a.side.startsWith('+') ? -1 : 1)
+              sides[ax] = Array.from(allSides).filter(s => s.endsWith(ax)).sort((a, b) => a.startsWith('+') ? -1 : 1)
             })
             return (
               <>
@@ -631,22 +640,25 @@ export default function OrderDetail() {
                   <div key={ax} style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '12px 0 8px', color: '#64748b', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{ax}-Axis</h5>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                      {sides[ax].map(jig => {
-                        const print = printMap[jig.side]
-                        const ref = refMap[jig.side]
-                        const cut = cutMap[jig.side]
+                      {sides[ax].map(side => {
+                        const jig = jigMap[side]
+                        const print = printMap[side]
+                        const ref = refMap[side]
+                        const cut = cutMap[side]
                         return (
-                          <div key={jig.side} className="jig-side-card">
-                            <div className="jig-side-header">{jig.side}</div>
+                          <div key={side} className="jig-side-card">
+                            <div className="jig-side-header">{side}</div>
                             {print && (
                               <div className="jig-side-thumb">
-                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${jig.side}`} />
+                                <img src={`${API_BASE_URL}${print.url}`} alt={`Jig ${side}`} />
                               </div>
                             )}
                             <div className="jig-side-actions">
-                              <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
-                                <Download size={14} /> STL
-                              </button>
+                              {jig && (
+                                <button className="btn btn-small" onClick={() => downloadFile(jig.url, jig.name)}>
+                                  <Download size={14} /> STL
+                                </button>
+                              )}
                               {print && (
                                 <button className="btn btn-small" onClick={() => downloadFile(print.url, print.name)} style={{ background: '#f59e0b' }}>
                                   <Download size={14} /> PNG
