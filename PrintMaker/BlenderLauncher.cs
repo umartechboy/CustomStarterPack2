@@ -53,7 +53,11 @@ public sealed class BlenderLayoutRunner
         double OverlapY = 5.0,
         double OverlapZ = 5.0,
         double InflationMargin = 0.4,
-        double GridHeight = 50.0
+        double GridHeight = 50.0,
+        double UMinusPinDia = 7.4,          // --u_minus_pin_dia_mm
+        double UPlusLockerDia = 13.0,       // --u_plus_locker_dia_mm
+        double UPlusBossHeight = 1.2,       // --u_plus_boss_height_mm
+        double? UMinusBossHeight = null     // --u_minus_boss_height_mm (omitted if null -> make_jig.py derives it from the pin)
     )
     {
         public int RenderResx { get; internal set; }
@@ -239,8 +243,16 @@ public sealed class BlenderLayoutRunner
                     "--overlap_y", opt.OverlapY.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--overlap_z", opt.OverlapZ.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--inflation_margin", opt.InflationMargin.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    "--grid_height", opt.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--u_minus_pin_dia_mm", opt.UMinusPinDia.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--u_plus_locker_dia_mm", opt.UPlusLockerDia.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--u_plus_boss_height_mm", opt.UPlusBossHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 };
+                if (opt.UMinusBossHeight.HasValue)
+                {
+                    jigArgs.Add("--u_minus_boss_height_mm");
+                    jigArgs.Add(opt.UMinusBossHeight.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
 
                 var jigPsi = new ProcessStartInfo
                 {

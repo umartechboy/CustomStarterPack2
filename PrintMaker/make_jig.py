@@ -99,46 +99,105 @@ def apply_boolean(target, cutter, operation='DIFFERENCE'):
 # ==========================================
 # UNIVERSAL JIG (+U / -U) POST-PROCESS
 # ==========================================
-def apply_universal_cylindrical_trim(final_jig, jig_min, jig_max):
+def measure_model_xy_extent(model_obj, center_x, center_y, z_min, z_max):
     """
-    Subtracts a hollow cylinder (ID 22mm / OD 200mm) from the jig, centered on
-    the jig's X/Y center, spanning its full Z range + 2mm. Trims the jig's
-    sides into a cylindrical form.
-    Returns (cx, cy) so downstream pieces can share the same center axis.
+    Scans model_obj's evaluated world-space vertices between z_min and z_max
+    (the Z slice of the model that actually becomes the cavity impression),
+    returning the farthest X and Y distance from (center_x, center_y) found
+    in that range. For a triangulated mesh the true extent always occurs at
+    a vertex, so a single pass over all vertices in the window is exact --
+    equivalent to (but faster than) literally re-measuring at fine Z steps.
+    """
+    deps = bpy.context.evaluated_depsgraph_get()
+    eo = model_obj.evaluated_get(deps)
+    me = eo.to_mesh()
+    max_dx = 0.0
+    max_dy = 0.0
+    try:
+        M = eo.matrix_world
+        for v in me.vertices:
+            wc = M @ v.co
+            if z_min <= wc.z <= z_max:
+                max_dx = max(max_dx, abs(wc.x - center_x))
+                max_dy = max(max_dy, abs(wc.y - center_y))
+    finally:
+        eo.to_mesh_clear()
+    return max_dx, max_dy
+
+def apply_universal_cylindrical_trim(final_jig, jig_min, jig_max, model_obj, scan_z_min, scan_z_max):
+    """
+    Subtracts a hollow disc (100mm-radius outer cylinder, unchanged) with a
+    rectangular protected zone punched out of its middle -- instead of a round
+    22mm bore -- from the jig, centered on the jig's X/Y center, spanning its
+    full Z range + 2mm. The inner rectangle's half-widths are sized from the
+    model's own geometry (max X/Y vertex distance from center within
+    [scan_z_min, scan_z_max]) plus a 2mm safety margin, floored at 11mm
+    (radius, i.e. the 22mm bore's diameter) so that region -- which fully
+    contains the actual cavity impression with margin to spare -- is
+    protected from removal, and only the area between it and the 100mm
+    outer boundary gets trimmed away.
+    Returns (cx, cy, half_x, half_y) so downstream pieces can share the same
+    center axis and match the same rectangle the trim left behind.
     """
     cx = (jig_min[0] + jig_max[0]) / 2.0
     cy = (jig_min[1] + jig_max[1]) / 2.0
     cz = (jig_min[2] + jig_max[2]) / 2.0
     tube_height = (jig_max[2] - jig_min[2]) + 2.0
 
+    max_dx, max_dy = measure_model_xy_extent(model_obj, cx, cy, scan_z_min, scan_z_max)
+    margin = 2.0  # safety buffer on the measured extent so the trim can't shave into the cavity wall
+    half_x = max(11.0, max_dx + margin)
+    half_y = max(11.0, max_dy + margin)
+    print(f"   -> Universal trim protected rect: half_x={half_x:.2f}mm half_y={half_y:.2f}mm "
+          f"(model max_dx={max_dx:.2f} max_dy={max_dy:.2f} in z=[{scan_z_min:.2f},{scan_z_max:.2f}])")
+
     outer = create_cylinder("UTrim_Outer", radius=100.0, depth=tube_height, location=(cx, cy, cz))
-    inner = create_cylinder("UTrim_Inner", radius=11.0, depth=tube_height + 2.0, location=(cx, cy, cz))
-    tube = apply_boolean(outer, inner, 'DIFFERENCE')  # hollow cylinder / annulus
+    inner = create_box(
+        "UTrim_Inner",
+        (cx - half_x, cy - half_y, cz - (tube_height + 2.0) / 2.0),
+        (cx + half_x, cy + half_y, cz + (tube_height + 2.0) / 2.0)
+    )
+    tube = apply_boolean(outer, inner, 'DIFFERENCE')  # disc with a rectangular hole
 
     apply_boolean(final_jig, tube, 'DIFFERENCE')
-    return cx, cy
+    return cx, cy, half_x, half_y
 
-def build_twist_lock_connector(center_x, center_y, base_z, outward_sign=1.0):
+def build_twist_lock_connector(center_x, center_y, base_z, half_x, half_y, outward_sign=1.0,
+                                boss_height=1.2, locker_dia=13.0):
     """
     Rebuilds the OpenSCAD twist-lock connector (body_a - body_b) in Blender.
     OpenSCAD local z=0 maps to world base_z; the body extends toward
     outward_sign * Z from there (away from the jig, mirrored via outward_sign
     when the flat face is on the -Z/bottom side instead of +Z/top), sharing
-    the (center_x, center_y) axis of the cylindrical trim.
+    the (center_x, center_y) axis of the cylindrical trim. body_a's outer
+    edge is a box (half_x/half_y) matching the trim's protected rectangle,
+    instead of a fixed r11 circle. body_a's thickness (boss_height) and its
+    through-hole diameter (locker_dia) are configurable; the anti-rotation
+    notch itself (body_b's keyed peg shape) is untouched -- only its Z-span
+    is re-fit to whatever boss_height is set to, so it still fully cuts
+    through body_a.
     """
     def world_z(local_z):
         return base_z + outward_sign * local_z
 
-    # body_a: washer, r11 outer / r6.5 inner, local z 0..2
-    a_outer = create_cylinder("BodyA_Outer", radius=11.0, depth=2.0,
-                               location=(center_x, center_y, world_z(1.0)))
-    a_inner = create_cylinder("BodyA_Inner", radius=6.5, depth=6.0,
-                               location=(center_x, center_y, world_z(1.0)))
+    locker_radius = locker_dia / 2.0
+    body_b_center_local = boss_height / 2.0
+    body_b_depth = boss_height + 2.0  # 1mm overshoot on each side, whatever boss_height is
+
+    # body_a: washer, box(half_x, half_y) outer / locker_radius inner, local z 0..boss_height
+    a_z_lo, a_z_hi = sorted((world_z(0.0), world_z(boss_height)))
+    a_outer = create_box(
+        "BodyA_Outer",
+        (center_x - half_x, center_y - half_y, a_z_lo),
+        (center_x + half_x, center_y + half_y, a_z_hi)
+    )
+    a_inner = create_cylinder("BodyA_Inner", radius=locker_radius, depth=boss_height + 4.0,
+                               location=(center_x, center_y, world_z(body_b_center_local)))
     body_a = apply_boolean(a_outer, a_inner, 'DIFFERENCE')
 
-    # body_b: keyed peg, r9.5, local z -1..3, minus 3 boxes
-    body_b = create_cylinder("BodyB", radius=9.5, depth=4.0,
-                              location=(center_x, center_y, world_z(1.0)))
+    # body_b: keyed peg (anti-rotation notch, unchanged shape), re-spanned in Z
+    body_b = create_cylinder("BodyB", radius=9.5, depth=body_b_depth,
+                              location=(center_x, center_y, world_z(body_b_center_local)))
 
     def cut_box(target, size_x, size_y, size_z, local_center):
         bpy.ops.mesh.primitive_cube_add(size=1, location=(
@@ -149,70 +208,92 @@ def build_twist_lock_connector(center_x, center_y, base_z, outward_sign=1.0):
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         return apply_boolean(target, box, 'DIFFERENCE')
 
-    # translate([0,-23/2,-2]) cube([12,23,6])       -> local center (6, 0, 1)
-    body_b = cut_box(body_b, 12, 23, 6, (6.0, 0.0, 1.0))
-    # translate([-23/2,-12,-2]) cube([23,9.7,6])    -> local center (0, -7.15, 1)
-    body_b = cut_box(body_b, 23, 9.7, 6, (0.0, -12.0 + 9.7 / 2.0, 1.0))
-    # translate([-23/2,2.3,-2]) cube([23,9.7,6])    -> local center (0, 7.15, 1)
-    body_b = cut_box(body_b, 23, 9.7, 6, (0.0, 2.3 + 9.7 / 2.0, 1.0))
+    # translate([0,-23/2,-2]) cube([12,23,6])       -> local center (6, 0, body_b_center_local)
+    box_z = body_b_depth + 2.0  # extra overshoot so these fully perforate body_b
+    body_b = cut_box(body_b, 12, 23, box_z, (6.0, 0.0, body_b_center_local))
+    # translate([-23/2,-12,-2]) cube([23,9.7,6])    -> local center (0, -7.15, body_b_center_local)
+    body_b = cut_box(body_b, 23, 9.7, box_z, (0.0, -12.0 + 9.7 / 2.0, body_b_center_local))
+    # translate([-23/2,2.3,-2]) cube([23,9.7,6])    -> local center (0, 7.15, body_b_center_local)
+    body_b = cut_box(body_b, 23, 9.7, box_z, (0.0, 2.3 + 9.7 / 2.0, body_b_center_local))
 
     connector = apply_boolean(body_a, body_b, 'DIFFERENCE')
     connector.name = "Universal_Connector"
     return connector
 
-def append_solid_cylinder(final_jig, center_x, center_y, flat_face_z, outward_sign, radius, height):
+def append_solid_box(final_jig, center_x, center_y, flat_face_z, outward_sign, half_x, half_y, height):
     """
-    Unions a solid cylinder onto the jig at flat_face_z, extending outward_sign * Z
-    by `height`, thickening the jig there. Returns the new outer flat_face_z.
+    Unions a solid rectangular box onto the jig at flat_face_z, extending
+    outward_sign * Z by `height`, thickening the jig there. half_x/half_y
+    match the trim's protected rectangle so the boss's outer edge lines up
+    with the shape the trim left behind. Returns the new outer flat_face_z.
     """
     new_face_z = flat_face_z + outward_sign * height
-    boss = create_cylinder("Boss_Solid", radius=radius, depth=height,
-                            location=(center_x, center_y, (flat_face_z + new_face_z) / 2.0))
+    z_lo, z_hi = sorted((flat_face_z, new_face_z))
+    boss = create_box(
+        "Boss_Solid",
+        (center_x - half_x, center_y - half_y, z_lo),
+        (center_x + half_x, center_y + half_y, z_hi)
+    )
     apply_boolean(final_jig, boss, 'UNION')
     return new_face_z
 
-def apply_universal_cone_pierce(final_jig, center_x, center_y, flat_face_z, inward_sign=1.0, pierce_depth=1.0):
+def apply_universal_pin_pierce(final_jig, center_x, center_y, tip_z, outer_face_z, pin_dia=7.4):
     """
-    Pierces a simple 60-degree (included-angle) point into the jig: the tip sits
-    pierce_depth inside the material (inward_sign * Z from flat_face_z), and the
-    cone widens moving the opposite way (back out past flat_face_z into open
-    space, where it has no effect since there's no material left to cut there).
-    Base radius (24mm dia) only sets the angle's rate of widening past the tip;
-    it doesn't need to fit inside the jig.
-    inward_sign = +1.0 when flat_face_z is the -Z/bottom face (material is +Z from it),
-    -1.0 when flat_face_z is the +Z/top face (material is -Z from it).
+    Pierces a "pin" shape into the jig: a 60-degree (included-angle) cone whose
+    tip touches tip_z exactly (the figure's own outer boundary -- it neither
+    falls short of nor punches past the model), widening to pin_dia at its
+    flat end, which then transitions into a same-diameter cylindrical shaft.
+    The shaft's length isn't fixed -- it's whatever's needed to reach 1mm past
+    outer_face_z (the jig+boss block's actual outer surface), so the cut is
+    always fully clean and always fully spans the block regardless of how
+    tall the boss ends up being.
     """
-    cone_radius = 12.0  # 24mm dia, just sets the cone's opening rate via the angle
+    pin_radius = pin_dia / 2.0
     half_angle = math.radians(30.0)  # 60-degree included angle -> 30-degree half-angle
-    cone_height = cone_radius / math.tan(half_angle)
+    cone_height = pin_radius / math.tan(half_angle)
+    cut_margin = 1.0  # extra length past outer_face_z for a clean cut
 
-    tip_z = flat_face_z + inward_sign * pierce_depth       # the point, just inside the material
-    wide_z = tip_z - inward_sign * cone_height              # widens back outward, past the face
+    direction = 1.0 if outer_face_z >= tip_z else -1.0  # which way is "outward" (tip -> surface)
+    wide_z = tip_z + direction * cone_height             # cone's flat end, where the shaft begins
+    cut_end_z = outer_face_z + direction * cut_margin    # 1mm past the block's actual outer face
 
+    # Cone: tip at tip_z (radius 0), flat/wide end at wide_z (radius = pin_radius)
     low_z, high_z = min(tip_z, wide_z), max(tip_z, wide_z)
-    radius1 = 0.0 if tip_z < wide_z else cone_radius  # radius at the -Z (lower) end
-    radius2 = cone_radius if tip_z < wide_z else 0.0  # radius at the +Z (upper) end
-
+    radius1 = 0.0 if tip_z < wide_z else pin_radius  # radius at the -Z (lower) end
+    radius2 = pin_radius if tip_z < wide_z else 0.0  # radius at the +Z (upper) end
     bpy.ops.mesh.primitive_cone_add(
         radius1=radius1, radius2=radius2, depth=(high_z - low_z),
         location=(center_x, center_y, (low_z + high_z) / 2.0), vertices=100
     )
     cone = bpy.context.active_object
-    cone.name = "UCone_Cutter"
-    apply_boolean(final_jig, cone, 'DIFFERENCE')
+    cone.name = "UPin_Cone"
+
+    # Shaft: same diameter, from the cone's wide end out to cut_end_z (includes cut_margin)
+    s_lo, s_hi = sorted((wide_z, cut_end_z))
+    shaft = create_cylinder("UPin_Shaft", radius=pin_radius, depth=(s_hi - s_lo),
+                             location=(center_x, center_y, (s_lo + s_hi) / 2.0))
+
+    pin_tool = apply_boolean(cone, shaft, 'UNION')
+    apply_boolean(final_jig, pin_tool, 'DIFFERENCE')
+
+    return cone_height
 
 # ==========================================
 # CORE 3D SPATIAL JIG FUNCTION
 # ==========================================
 def generate_jig_in_place(
-    raw_model, 
-    master_min, 
-    master_max, 
-    overlap, 
-    bottom_thickness=1.0, 
-    inflation=0.4, 
-    target_tris=50000, 
-    direction='+Z'
+    raw_model,
+    master_min,
+    master_max,
+    overlap,
+    bottom_thickness=1.0,
+    inflation=0.4,
+    target_tris=50000,
+    direction='+Z',
+    u_minus_pin_dia=7.4,
+    u_plus_locker_dia=13.0,
+    u_plus_boss_height=1.2,
+    u_minus_boss_height=None,
 ):
     print(f"\n[FUNC] Generating low-profile {direction} Jig...")
     
@@ -361,18 +442,36 @@ def generate_jig_in_place(
     # 8.5 UNIVERSAL JIG (+U / -U) POST-PROCESS
     if direction in ('+U', '-U'):
         print(f"   -> Applying Universal Jig post-process ({direction})...")
-        cx, cy = apply_universal_cylindrical_trim(final_jig, jig_min, jig_max)
+        # Scan the model over exactly the slice that becomes the cavity impression
+        # (from this side's extreme point, `overlap` deep) to size the trim's outer
+        # rectangle so it can't cut into the cavity's walls.
+        if direction == '+U':
+            scan_z_min, scan_z_max = mod_min[2], mod_min[2] + overlap
+        else:  # '-U'
+            scan_z_min, scan_z_max = mod_max[2] - overlap, mod_max[2]
+        cx, cy, half_x, half_y = apply_universal_cylindrical_trim(final_jig, jig_min, jig_max, raw_model, scan_z_min, scan_z_max)
         if direction == '+U':
             # Flat face is at jig_min.z (bottom); connector extends away from the jig, toward -Z.
-            connector = build_twist_lock_connector(cx, cy, base_z=jig_min[2], outward_sign=-1.0)
+            connector = build_twist_lock_connector(cx, cy, base_z=jig_min[2], half_x=half_x, half_y=half_y,
+                                                    outward_sign=-1.0, boss_height=u_plus_boss_height,
+                                                    locker_dia=u_plus_locker_dia)
             apply_boolean(final_jig, connector, 'UNION')
         elif direction == '-U':
-            # Flat face is at jig_max.z (top); outward is +Z. Thicken by 2mm first
-            # with a 22mm-dia boss (matching the bore ID), then pierce the cone into
-            # the material (-Z).
-            new_face_z = append_solid_cylinder(final_jig, cx, cy, flat_face_z=jig_max[2],
-                                                outward_sign=1.0, radius=11.0, height=2.0)
-            apply_universal_cone_pierce(final_jig, cx, cy, flat_face_z=new_face_z, inward_sign=-1.0, pierce_depth=3.0)
+            # Flat face is at jig_max.z (top); outward is +Z. Boss height defaults to a
+            # nominal cone+3mm reference (just for sizing), unless overridden.
+            pin_radius = u_minus_pin_dia / 2.0
+            pin_cone_height = pin_radius / math.tan(math.radians(30.0))
+            boss_height_minus = u_minus_boss_height if u_minus_boss_height is not None \
+                else (pin_cone_height + 3.0)
+            new_face_z = append_solid_box(final_jig, cx, cy, flat_face_z=jig_max[2],
+                                           outward_sign=1.0, half_x=half_x, half_y=half_y,
+                                           height=boss_height_minus)
+            # Tip touches the figure's own outer boundary (mod_max.z) exactly -- neither short
+            # of nor past the model. The cylindrical shaft's length isn't fixed: it extends
+            # from the cone's flat end all the way to 1mm past the block's actual outer face
+            # (new_face_z), so the cut always fully spans the boss regardless of its height.
+            apply_universal_pin_pierce(final_jig, cx, cy, tip_z=mod_max[2], outer_face_z=new_face_z,
+                                        pin_dia=u_minus_pin_dia)
 
     # 9. Cleanup
     bpy.data.objects.remove(working_model, do_unlink=True)
@@ -403,6 +502,10 @@ if __name__ == "__main__":
     parser.add_argument("--overlap_z", type=float, default=5.0)
     parser.add_argument("--inflation_margin", type=float, default=0.4)
     parser.add_argument("--grid_height", type=float, default=50.0)
+    parser.add_argument("--u_minus_pin_dia_mm", type=float, default=7.4)
+    parser.add_argument("--u_plus_locker_dia_mm", type=float, default=13.0)
+    parser.add_argument("--u_plus_boss_height_mm", type=float, default=1.2)
+    parser.add_argument("--u_minus_boss_height_mm", type=float, default=None)
 
     args = parser.parse_args(argv)
 
@@ -465,7 +568,11 @@ if __name__ == "__main__":
             overlap=OVERLAP_Z,
             bottom_thickness=BOTTOM_THICKNESS,
             inflation=args.inflation_margin,
-            direction=d
+            direction=d,
+            u_minus_pin_dia=args.u_minus_pin_dia_mm,
+            u_plus_locker_dia=args.u_plus_locker_dia_mm,
+            u_plus_boss_height=args.u_plus_boss_height_mm,
+            u_minus_boss_height=args.u_minus_boss_height_mm,
         )
         
         # Export each individual jig STL

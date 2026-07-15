@@ -24,8 +24,8 @@ PRINTMAKER_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "..", "config
 
 def _load_jig_generation_settings():
     """Reads the jig_generation section written by the /printmaker/settings admin API.
-    Falls back to the PrintMaker CLI's own defaults (+U,-U / 2mm overlap) if the
-    settings file or section is missing, so a missing/edited-out file doesn't break orders.
+    Falls back to the PrintMaker CLI's own defaults if the settings file or section is
+    missing, so a missing/edited-out file doesn't break orders.
     """
     import json
     try:
@@ -39,7 +39,18 @@ def _load_jig_generation_settings():
     if isinstance(jigs_requested, list):
         jigs_requested = ",".join(jigs_requested)
     overlap_z_mm = jig_gen.get("overlap_z_mm", 2.0)
-    return jigs_requested, overlap_z_mm
+    u_minus_pin_dia_mm = jig_gen.get("u_minus_pin_dia_mm", 7.4)
+    u_plus_locker_dia_mm = jig_gen.get("u_plus_locker_dia_mm", 13.0)
+    u_plus_boss_height_mm = jig_gen.get("u_plus_boss_height_mm", 1.2)
+    u_minus_boss_height_mm = jig_gen.get("u_minus_boss_height_mm")  # None -> PrintMaker derives it from the pin
+    return {
+        "jigs_requested": jigs_requested,
+        "overlap_z_mm": overlap_z_mm,
+        "u_minus_pin_dia_mm": u_minus_pin_dia_mm,
+        "u_plus_locker_dia_mm": u_plus_locker_dia_mm,
+        "u_plus_boss_height_mm": u_plus_boss_height_mm,
+        "u_minus_boss_height_mm": u_minus_boss_height_mm,
+    }
 
 
 class OrderProcessor:
@@ -638,7 +649,7 @@ Make it visually interesting but not too busy - it should complement, not overwh
                 logger.info(f"[ORDER {job_id}] Copied figure GLB to {pm_figure_path}")
 
                 # Run PrintMaker executable directly
-                jigs_requested, overlap_z_mm = _load_jig_generation_settings()
+                jig_gen = _load_jig_generation_settings()
                 pm_cmd = [
                     settings.PRINTMAKER_EXECUTABLE,
                     "--job", job_id,
@@ -646,9 +657,14 @@ Make it visually interesting but not too busy - it should complement, not overwh
                     "--dpi", str(settings.PRINTMAKER_DPI),
                     "--title", order_data.get("title", "Starter Pack"),
                     "--subtitle", order_data.get("subtitle", ""),
-                    "--jigs_requested", jigs_requested,
-                    "--overlap_z_mm", str(overlap_z_mm),
+                    "--jigs_requested", jig_gen["jigs_requested"],
+                    "--overlap_z_mm", str(jig_gen["overlap_z_mm"]),
+                    "--u_minus_pin_dia_mm", str(jig_gen["u_minus_pin_dia_mm"]),
+                    "--u_plus_locker_dia_mm", str(jig_gen["u_plus_locker_dia_mm"]),
+                    "--u_plus_boss_height_mm", str(jig_gen["u_plus_boss_height_mm"]),
                 ]
+                if jig_gen["u_minus_boss_height_mm"] is not None:
+                    pm_cmd += ["--u_minus_boss_height_mm", str(jig_gen["u_minus_boss_height_mm"])]
 
                 logger.info(f"[ORDER {job_id}] Running PrintMaker: {' '.join(pm_cmd)}")
 

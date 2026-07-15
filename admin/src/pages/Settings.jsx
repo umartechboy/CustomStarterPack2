@@ -10,6 +10,10 @@ export default function Settings() {
   const [saveResult, setSaveResult] = useState(null) // { success, error }
   const [jigsRequested, setJigsRequested] = useState([])
   const [overlapZMm, setOverlapZMm] = useState(2)
+  const [pinDiaMm, setPinDiaMm] = useState(7.4)
+  const [lockerDiaMm, setLockerDiaMm] = useState(13.0)
+  const [uPlusBossHeightMm, setUPlusBossHeightMm] = useState(1.2)
+  const [uMinusBossHeightMm, setUMinusBossHeightMm] = useState('') // '' = auto (derived from pin dia)
 
   useEffect(() => {
     let cancelled = false
@@ -22,6 +26,10 @@ export default function Settings() {
         const jigGen = json.settings?.jig_generation || {}
         setJigsRequested(jigGen.jigs_requested || ['+U', '-U'])
         setOverlapZMm(jigGen.overlap_z_mm ?? 2)
+        setPinDiaMm(jigGen.u_minus_pin_dia_mm ?? 7.4)
+        setLockerDiaMm(jigGen.u_plus_locker_dia_mm ?? 13.0)
+        setUPlusBossHeightMm(jigGen.u_plus_boss_height_mm ?? 1.2)
+        setUMinusBossHeightMm(jigGen.u_minus_boss_height_mm ?? '')
       } catch (error) {
         if (!cancelled) setSaveResult({ success: false, error: `Failed to load settings: ${error.message}` })
       } finally {
@@ -51,7 +59,11 @@ export default function Settings() {
         body: JSON.stringify({
           jig_generation: {
             jigs_requested: jigsRequested,
-            overlap_z_mm: parseFloat(overlapZMm)
+            overlap_z_mm: parseFloat(overlapZMm),
+            u_minus_pin_dia_mm: parseFloat(pinDiaMm),
+            u_plus_locker_dia_mm: parseFloat(lockerDiaMm),
+            u_plus_boss_height_mm: parseFloat(uPlusBossHeightMm),
+            u_minus_boss_height_mm: uMinusBossHeightMm === '' ? null : parseFloat(uMinusBossHeightMm)
           }
         })
       })
@@ -136,6 +148,57 @@ export default function Settings() {
               onChange={(e) => setOverlapZMm(e.target.value)}
             />
             <p className="form-hint">Controls the universal jig's plate depth (overlap + 1mm fixed backing).</p>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>-U Pin Diameter (mm)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={pinDiaMm}
+                onChange={(e) => setPinDiaMm(e.target.value)}
+              />
+              <p className="form-hint">Flat-side diameter of the -U pin's cone (60° angle fixed; height follows automatically).</p>
+            </div>
+            <div className="form-group">
+              <label>+U Locker Hole Diameter (mm)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={lockerDiaMm}
+                onChange={(e) => setLockerDiaMm(e.target.value)}
+              />
+              <p className="form-hint">Diameter of the through-hole bored in the +U connector's washer.</p>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>+U Boss Thickness (mm)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={uPlusBossHeightMm}
+                onChange={(e) => setUPlusBossHeightMm(e.target.value)}
+              />
+              <p className="form-hint">Thickness of the +U connector washer (body_a).</p>
+            </div>
+            <div className="form-group">
+              <label>-U Boss Thickness (mm)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                placeholder="Auto (cone + shaft height)"
+                value={uMinusBossHeightMm}
+                onChange={(e) => setUMinusBossHeightMm(e.target.value)}
+              />
+              <p className="form-hint">Leave blank to auto-size to the pin's own cone+shaft height (always fits).</p>
+            </div>
           </div>
         </div>
 

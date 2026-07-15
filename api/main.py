@@ -3091,7 +3091,11 @@ PRINTMAKER_DEFAULTS = {
     },
     "jig_generation": {
         "jigs_requested": ["+U", "-U"],
-        "overlap_z_mm": 2.0
+        "overlap_z_mm": 2.0,
+        "u_minus_pin_dia_mm": 7.4,
+        "u_plus_locker_dia_mm": 13.0,
+        "u_plus_boss_height_mm": 1.2,
+        "u_minus_boss_height_mm": None
     },
     "mounting_holes": {
         "figure_hole_diameter_mm": 3.2, "figure_hole_length_mm": 5.5,

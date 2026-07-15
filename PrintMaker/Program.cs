@@ -47,6 +47,10 @@ class Program
             int cutSmoothing_px = 5;
             string jigsRequested = "+U,-U";     // --jigs_requested
             double overlapZ_mm = 2.0;           // --overlap_z_mm
+            double uMinusPinDia_mm = 7.4;       // --u_minus_pin_dia_mm
+            double uPlusLockerDia_mm = 13.0;    // --u_plus_locker_dia_mm
+            double uPlusBossHeight_mm = 1.2;    // --u_plus_boss_height_mm
+            double? uMinusBossHeight_mm = null; // --u_minus_boss_height_mm (unset -> derived from the pin)
 
 
             //// If no args or null -> help
@@ -55,7 +59,8 @@ class Program
 
             // ---- parse CLI (--key value OR --key=value), validate keys ----
             var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle", "--jigs_requested", "--overlap_z_mm" };
+    { "--job", "--workdir", "--dpi", "--min_sticker_mm", "--cut_margin_mm", "--cut_smoothing", "--title", "--subtitle", "--jigs_requested", "--overlap_z_mm",
+      "--u_minus_pin_dia_mm", "--u_plus_locker_dia_mm", "--u_plus_boss_height_mm", "--u_minus_boss_height_mm" };
 
             var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < args.Length; i++)
@@ -131,6 +136,34 @@ class Program
                 if (!double.TryParse(sOverlapZ, out var vOverlapZ) || vOverlapZ < 0)
                     return PrintHelp("Invalid --overlap_z_mm. Use a non-negative number.");
                 overlapZ_mm = vOverlapZ;
+            }
+
+            if (kv.TryGetValue("--u_minus_pin_dia_mm", out var sPinDia))
+            {
+                if (!double.TryParse(sPinDia, out var vPinDia) || vPinDia <= 0)
+                    return PrintHelp("Invalid --u_minus_pin_dia_mm. Use a positive number.");
+                uMinusPinDia_mm = vPinDia;
+            }
+
+            if (kv.TryGetValue("--u_plus_locker_dia_mm", out var sLockerDia))
+            {
+                if (!double.TryParse(sLockerDia, out var vLockerDia) || vLockerDia <= 0)
+                    return PrintHelp("Invalid --u_plus_locker_dia_mm. Use a positive number.");
+                uPlusLockerDia_mm = vLockerDia;
+            }
+
+            if (kv.TryGetValue("--u_plus_boss_height_mm", out var sPlusBoss))
+            {
+                if (!double.TryParse(sPlusBoss, out var vPlusBoss) || vPlusBoss <= 0)
+                    return PrintHelp("Invalid --u_plus_boss_height_mm. Use a positive number.");
+                uPlusBossHeight_mm = vPlusBoss;
+            }
+
+            if (kv.TryGetValue("--u_minus_boss_height_mm", out var sMinusBoss))
+            {
+                if (!double.TryParse(sMinusBoss, out var vMinusBoss) || vMinusBoss <= 0)
+                    return PrintHelp("Invalid --u_minus_boss_height_mm. Use a positive number.");
+                uMinusBossHeight_mm = vMinusBoss;
             }
 
             // ---- derived paths ----
@@ -223,7 +256,11 @@ class Program
                 renderResy: isDebug ? resXyInDebug: 2000,
                 dontCreateBoundaries: true,
                 jigsRequested: jigsRequested,
-                overlapZ_mm: overlapZ_mm),
+                overlapZ_mm: overlapZ_mm,
+                uMinusPinDia_mm: uMinusPinDia_mm,
+                uPlusLockerDia_mm: uPlusLockerDia_mm,
+                uPlusBossHeight_mm: uPlusBossHeight_mm,
+                uMinusBossHeight_mm: uMinusBossHeight_mm),
 
             };
 
@@ -256,7 +293,7 @@ class Program
         //    return 1;
         //}
     }
-    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries, string jigsRequested = "+U,-U", double overlapZ_mm = 2.0)
+    static async Task CreateAll(string nameSeed, string inDir, string outDir, string jobID, int dpi, int cutSmoothing, float cuttingMargin_mm, float minStickerSizes_smm, float width, float height, float thickness, bool hasHole, double textHeight, float upperRatio, float marginFig, float marginAcc, float paddingCard, float cardFillet, string title, string subtitle, bool layoutOnly, int renderResx, int renderResy, bool dontCreateBoundaries, string jigsRequested = "+U,-U", double overlapZ_mm = 2.0, double uMinusPinDia_mm = 7.4, double uPlusLockerDia_mm = 13.0, double uPlusBossHeight_mm = 1.2, double? uMinusBossHeight_mm = null)
     {
         if (isDebug && !nameSeed.Contains(makeArtifactInDebug) && dontRunJigsInDebug && dontRunBlender2PyInDebug)
         {
@@ -294,7 +331,11 @@ class Program
         OverlapY: 8.0,
         OverlapZ: overlapZ_mm,
         InflationMargin: 0.4,
-        GridHeight: 50.0
+        GridHeight: 50.0,
+        UMinusPinDia: uMinusPinDia_mm,
+        UPlusLockerDia: uPlusLockerDia_mm,
+        UPlusBossHeight: uPlusBossHeight_mm,
+        UMinusBossHeight: uMinusBossHeight_mm
     )
 );
         string jigsMetaPath = Path.Combine(outDir, $"{nameSeed}_jigs_meta.json");
@@ -613,6 +654,10 @@ Optional:
   --cut_smoothing <float>   Smoothen the cut (default: 10 (iterations))
   --jigs_requested <list>   Comma-separated jig directions to generate (default: +U,-U)
   --overlap_z_mm <float>    Jig overlap in mm, controls plate depth (default: 2)
+  --u_minus_pin_dia_mm <float>     -U pin (cone+shaft) flat-side diameter in mm (default: 7.4)
+  --u_plus_locker_dia_mm <float>   +U connector through-hole diameter in mm (default: 13)
+  --u_plus_boss_height_mm <float>  +U connector (body_a washer) thickness in mm (default: 1.2)
+  --u_minus_boss_height_mm <float> -U boss thickness in mm (default: derived from the pin's cone+shaft height)
 
 Examples:
   PrintMaker --job 001
